@@ -130,7 +130,7 @@ try:
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
         # 🔗 [จุดใส่ลิงก์]: นำ URL Web App จาก Google Apps Script มาใส่ตรงนี้แทนคำว่า "วาง_URL_ตรงนี้"
-        API_URL = "วาง_URL_ตรงนี้"
+        API_URL = "https://script.google.com/macros/s/AKfycbwcuZ9obk0Vq3x4XJfrpHSrdodu4ol7L4xI2Tzbwa5pFO_KZAeaTnCgAFkELLbAmYfQFw/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
