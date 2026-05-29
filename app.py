@@ -2,7 +2,7 @@ import streamlit as st
 import plotly.express as px
 import datetime
 import pandas as pd
-from streamlit_calendar import calendar # นำเข้าแพ็กเกจปฏิทินขั้นสูง
+from streamlit_calendar import calendar
 from utils import load_data, check_complete
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
@@ -28,7 +28,6 @@ st.markdown("""
     }
     .status-complete { background-color: #D1FAE5; color: #065F46; }
     .status-pending { background-color: #FEF3C7; color: #92400E; }
-    .fc-event { cursor: pointer; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -42,14 +41,31 @@ try:
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง (Highlight)")
         st.write("💡 *คลิกเลือกวันที่หรือแถบสีบนปฏิทินเพื่อเรียกดูรูปภาพและรายละเอียดประเด็นความเสี่ยงของวันนั้นๆ*")
         
-        # --- เตรียมข้อมูลประเด็นความเสี่ยง (Column B + C) ไปยัดลงปฏิทิน ---
+        # --- กรองข้อมูลระดับแรกก่อนส่งให้ปฏิทินตาม Dropdown ด้านบน ---
+        f_col1, f_col2 = st.columns(2)
+        with f_col1:
+            owners = ["ทั้งหมด"] + sorted(df_raw['Responsible Person'].dropna().astype(str).unique().tolist())
+            sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
+        with f_col2:
+            statuses = ["ทั้งหมด"] + sorted(df_raw['Status'].dropna().astype(str).unique().tolist())
+            sel_status = st.selectbox("🔘 กรองตามสถานะ", statuses)
+
+        # กรองข้อมูลเบื้องต้นสำหรับปฏิทิน
+        df_filtered = df_raw.copy()
+        if sel_owner != "ทั้งหมด":
+            df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
+        if sel_status != "ทั้งหมด":
+            df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
+
+        # --- สร้างรายการ Events บนปฏิทินจากข้อมูลที่กรองแล้ว ---
         calendar_events = []
-        for idx, row in df_raw.dropna(subset=['Formatted_Date']).iterrows():
+        df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
+        
+        for idx, row in df_with_date.iterrows():
             is_done = check_complete(row.get('Status'))
             topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
             date_str = str(row['Formatted_Date'])
             
-            # ตั้งค่าสี Highlight: เขียวเมื่อเสร็จ / ส้มเมื่อค้างส่ง
             bg_color = "#10B981" if is_done else "#F59E0B"
             
             calendar_events.append({
@@ -59,19 +75,10 @@ try:
                 "backgroundColor": bg_color,
                 "borderColor": bg_color,
                 "allDay": True,
-                "id": date_str # ผูก ID เป็นค่าวันที่เพื่อใช้ดึงข้อมูลตอนคลิก
+                "id": date_str
             })
 
-        # --- ส่วนแสดงผลฟิลเตอร์ด้านบนปฏิทิน ---
-        f_col1, f_col2 = st.columns(2)
-        with f_col1:
-            owners = ["ทั้งหมด"] + sorted(df_raw['Responsible Person'].dropna().astype(str).unique().tolist())
-            sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
-        with f_col2:
-            statuses = ["ทั้งหมด"] + sorted(df_raw['Status'].dropna().astype(str).unique().tolist())
-            sel_status = st.selectbox("🔘 กรองตามสถานะ", statuses)
-
-        # จัดการแสดงผลปฏิทิน FullCalendar
+        # แสดงผลปฏิทิน FullCalendar
         calendar_options = {
             "headerToolbar": {
                 "left": "today prev,next",
@@ -82,75 +89,61 @@ try:
             "locale": "th"
         }
         
-        # สร้าง Component ปฏิทินขึ้นบนหน้าเว็บ
         cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar')
         
-        # --- จัดการ Logic เมื่อผู้ใช้คลิกเลือกวันที่บนปฏิทิน ---
+        # แกะข้อมูลวันที่จากการกดคลิกเลือกบนหน้าปฏิทิน
         selected_date = None
-        
-        # ถ้้ามการคลิก Event หรือคลิกวันที่ในปฏิทิน
         if cal_data.get("eventClick"):
             selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"):
             selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
-        # กรองข้อมูลมาแสดงผลในตารางด้านล่างตามวันที่เลือกบนปฏิทิน
-        df_display = df_raw.copy()
-        
+        # ดึงงานเฉพาะวันที่ถูกเลือกมาแสดงเป็นการ์ดด้านล่าง
         if selected_date:
             st.success(f"📂 แสดงข้อมูลประจำวันที่เลือก: **{selected_date}**")
-            df_display = df_display[df_display['Formatted_Date'].astype(str) == str(selected_date)]
-        else:
-            st.info("👆 กรุณาเลือกคลิกวันที่บนปฏิทินด้านบนเพื่อดูรูปภาพ Before / After")
-            df_display = pd.DataFrame() # ไม่แสดงอะไรเลยถ้ายังไม่เลือกวัน
-
-        # กรองผู้รับผิดชอบและสถานะซ้ำอีกแรง
-        if not df_display.empty:
-            if sel_owner != "ทั้งหมด": 
-                df_display = df_display[df_display['Responsible Person'].astype(str) == sel_owner]
-            if sel_status != "ทั้งหมด": 
-                df_display = df_display[df_display['Status'].astype(str) == sel_status]
-
-        # --- วาดการ์ดแสดงผลรูปภาพและข้อมูลแก้ไข ---
-        if not df_display.empty:
-            st.divider()
-            for idx, row in df_display.iterrows():
-                is_complete = check_complete(row.get('Status'))
-                card_class = "card complete-card" if is_complete else "card"
-                status_html = '<span class="status-badge status-complete">✅ เรียบร้อย</span>' if is_complete else '<span class="status-badge status-pending">⏳ กำลังดำเนินการ</span>'
-                
-                with st.container():
-                    st.markdown(f"""
-                        <div class="{card_class}">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <h3 style="margin:0; color:#1E3A8A;">📍 {row.get('Topic/risk finding') or 'ไม่ระบุหัวข้อ'}</h3>
-                                {status_html}
-                            </div>
-                            <p style="font-size:16px; margin-top:8px; color: #4B5563;">
-                                <b>สถานที่:</b> {row.get('Location') or 'N/A'} | 
-                                <b>ผู้รับผิดชอบ:</b> {row.get('Responsible Person') or 'N/A'}
-                            </p>
-                            <p style="font-size:16px;"><b>แนวทางการแก้ไข:</b> {row.get('Corrective Action') or 'ไม่มีข้อมูล'}</p>
-                        </div>
-                    """, unsafe_allow_html=True)
+            df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)]
+            
+            if not df_display.empty:
+                st.divider()
+                for idx, row in df_display.iterrows():
+                    is_complete = check_complete(row.get('Status'))
+                    card_class = "card complete-card" if is_complete else "card"
+                    status_html = '<span class="status-badge status-complete">✅ เรียบร้อย</span>' if is_complete else '<span class="status-badge status-pending">⏳ กำลังดำเนินการ</span>'
                     
-                    img_col1, img_col2 = st.columns(2)
-                    with img_col1:
-                        st.caption("📸 ภาพก่อนแก้ไข (Before)")
-                        if pd.notna(row['Picture (before)']) and str(row['Picture (before)']).startswith('http'):
-                            st.image(row['Picture (before)'], use_container_width=True)
-                    with img_col2:
-                        st.caption("✅ ภาพหลังแก้ไข (After)")
-                        if is_complete and pd.notna(row['Picture (After)']) and str(row['Picture (After)']).startswith('http'):
-                            st.image(row['Picture (After)'], use_container_width=True)
-                        elif not is_complete:
-                            st.info("💡 อยู่ระหว่างรอดำเนินการแก้ไข (ยังไม่มีภาพ After)")
-                    st.markdown("<br>", unsafe_allow_html=True)
-        elif selected_date:
-            st.warning("ไม่พบข้อมูลงานที่ตรงกับผู้รับผิดชอบหรือสถานะที่กรองในวันนี้")
+                    with st.container():
+                        st.markdown(f"""
+                            <div class="{card_class}">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <h3 style="margin:0; color:#1E3A8A;">📍 {row.get('Topic/risk finding') or 'ไม่ระบุหัวข้อ'}</h3>
+                                    {status_html}
+                                </div>
+                                <p style="font-size:16px; margin-top:8px; color: #4B5563;">
+                                    <b>สถานที่:</b> {row.get('Location') or 'N/A'} | 
+                                    <b>ผู้รับผิดชอบ:</b> {row.get('Responsible Person') or 'N/A'}
+                                </p>
+                                <p style="font-size:16px;"><b>แนวทางการแก้ไข:</b> {row.get('Corrective Action') or 'ไม่มีข้อมูล'}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        img_col1, img_col2 = st.columns(2)
+                        with img_col1:
+                            st.caption("📸 ภาพก่อนแก้ไข (Before)")
+                            if pd.notna(row['Picture (before)']) and str(row['Picture (before)']).startswith('http'):
+                                st.image(row['Picture (before)'], use_container_width=True)
+                        with img_col2:
+                            st.caption("✅ ภาพหลังแก้ไข (After)")
+                            if is_complete and pd.notna(row['Picture (After)']) and str(row['Picture (After)']).startswith('http'):
+                                East = st.image(row['Picture (After)'], use_container_width=True)
+                            elif not is_complete:
+                                st.info("💡 อยู่ระหว่างรอดำเนินการแก้ไข (ยังไม่มีภาพ After)")
+                        st.markdown("<br>", unsafe_allow_html=True)
+            else:
+                st.warning("ไม่มีข้อมูลงานที่ตรงกับเงื่อนไขการกรองในวันนี้")
+        else:
+            st.info("👆 กรุณาเลือกคลิกแถบสีงาน หรือช่องวันที่บนปฏิทิน เพื่อเปิดดูรายละเอียดและรูปภาพเคส")
 
     else:
-        # --- 📊 หน้าสรุปภาพรวม (Dashboardเดิม) ---
+        # --- 📊 หน้าสรุปภาพรวม (Dashboard) ---
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         
         total = len(df_raw)
