@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# ลิงก์ดึงข้อมูลจาก Google Sheet Master File ของคุณ
+# ลิงก์เชื่อมโยงกับ Google Sheet หลักของคุณ
 SHEET_ID = "1c2sJ3uDxUa39ARePd-Ry7Z5p3ZhqQYgyXTr2gLYSqaU"
 
 @st.cache_data(ttl=5)
@@ -9,9 +9,9 @@ def load_data():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
         df = pd.read_csv(url)
-        df.columns = df.columns.str.strip()  # ล้างช่องว่างหัวคอลัมน์
+        df.columns = df.columns.str.strip()  # ตัดช่องว่างที่หัวคอลัมน์ออกทั้งหมด
         
-        # 💡 ระบบตรวจจับหัวข้อคำสำคัญอัตโนมัติ (Keyword Mapping)
+        # 💡 จับคู่ชื่อหัวคอลัมน์อัจฉริยะ (Keyword Mapping) เผื่อมีการแก้ไขชื่อในสเปรดชีต
         mapping = {}
         for col in df.columns:
             col_lower = str(col).lower()
@@ -34,21 +34,32 @@ def load_data():
 
         df = df.rename(columns=mapping)
         
-        # สร้างคอลัมน์มาตรฐานสำรองไว้ป้องกันระบบพัง
-        for standard_col in ['ว/ด/ป', 'Picture (before)', 'Picture (After)', 'Responsible Person', 'Status', 'Topic/risk finding', 'Location', 'Corrective Action']:
-            if standard_col not in df.columns:
-                df[standard_col] = None
+        # ป้องกันตารางพัง: สร้างคอลัมน์เปล่าสำรองไว้หากใน Google Sheet ลืมสร้างไว้
+        standard_cols = ['ว/ด/ป', 'Picture (before)', 'Picture (After)', 'Responsible Person', 'Status', 'Topic/risk finding', 'Location', 'Corrective Action']
+        for col in standard_cols:
+            if col not in df.columns:
+                df[col] = None
 
-        # แปลงวันที่ให้อยู่ในรูปแบบที่ระบบเข้าใจได้ปลอดภัย
+        # แปลงวันที่แบบปลอดภัย (ช่องไหนไม่ใช่วันที่จะกลายเป็น NaT แทนการเกิด Error)
         df['Formatted_Date'] = pd.to_datetime(df['ว/ด/ป'], errors='coerce').dt.date
         return df
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการโหลดข้อมูล: {e}")
+        st.error(f"ไม่สามารถโหลดข้อมูลจากสเปรดชีตได้: {e}")
         return pd.DataFrame()
 
-def get_status_type(status_text):
-    """ฟังก์ชันแบ่งกลุ่มสถานะเพื่อนำไปกำหนดสีและแท็ก"""
-    if pd.isna(status_text):
+def get_status_group(status_value):
+    """ฟังก์ชันคัดกรองสถานะออกเป็น 3 คลาสหลัก สำหรับกำหนดสีการแสดงผล"""
+    if pd.isna(status_value):
         return "pending"
         
-    status_str = str(status_text).
+    status_str = str(status_value).strip().lower()
+    
+    # 1. กลุ่มเสร็จสิ้น (Complete) -> สีเขียว
+    if any(x in status_str for x in ["เรียบร้อย", "complete", "เสร็จสิ้น", "สำเร็จ", "✅", "done"]):
+        return "complete"
+    # 2. กลุ่มกำลังทำ (On process) -> สีฟ้า
+    elif any(x in status_str for x in ["on process", "onprocess", "กำลังทำ", "ดำเนิน", "🔄"]):
+        return "on_process"
+    # 3. กลุ่มค้างคา (Pending) -> สีส้ม
+    else:
+        return "pending"
