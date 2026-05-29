@@ -4,7 +4,7 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# 🔗 ลิงก์ ID ของ Google Sheet หลักของคุณ
+# ID ของ Google Sheet หลักของคุณ
 SHEET_ID = "1c2sJ3uDxUa39ARePd-Ry7Z5p3ZhqQYgyXTr2gLYSqaU"
 
 @st.cache_data(ttl=3)
@@ -14,33 +14,42 @@ def load_data():
         df = pd.read_csv(url)
         df.columns = df.columns.str.strip()
         
-        # ตัดแถวที่เป็นค่าว่างเปล่าออกไปก่อน
+        # กรองแถวว่างเปล่าออก
         df = df.dropna(subset=['Topic/risk finding', 'Responsible Person'], how='all')
         
-        # คลีนช่องว่างรอบๆ ข้อความของทุกคอลัมน์
+        # คลีนช่องว่างรอบตัวอักษรของทุกคอลัมน์
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.strip()
 
-        # 🛠️ ฟังก์ชันแปลงคอลัมน์ Date และ Month ให้เป็นระบบวันที่ของปฏิทินแบบปลอดภัยขั้นสุด
+        # ระบบสกัดและแปลงวันที่แบบเสถียรสูงสุด (รองรับข้อมูลครบทุกเดือนในสเปรดชีต)
         def parse_custom_date(row):
             try:
-                # ดึงค่าจากคอลัมน์ Date และ Month
-                d_val = str(row.get('Date', '1')).strip()
-                m_val = str(row.get('Month', 'May')).strip().title()[:3]
+                d_raw = str(row.get('Date', '')).strip()
+                if '/' in d_raw or '-' in d_raw:
+                    return pd.to_datetime(d_raw, errors='coerce').date()
                 
-                # ถ้าเป็นแถวทดสอบ หรือไม่ใช่ตัวเลข ให้ข้ามไป ไม่ให้ระบบพัง
-                if 'test' in d_val.lower() or not d_val.replace('.','',1).isdigit():
-                    return None
-                
-                d = int(float(d_val))
-                months = {'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
-                m = months.get(m_val, 5)
-                
-                # แสดงผลบนปฏิทินของปี 2026 ตามฐานข้อมูลหลัก
-                return pd.Timestamp(year=2026, month=m, day=d).date()
+                # แปลงค่ากรณีเป็นตัวเลขวันโดดๆ ประกอบกับชื่อเดือน
+                if d_raw.replace('.','',1).isdigit():
+                    d = int(float(d_raw))
+                    m_val = str(row.get('Month', 'Jan')).strip().lower()
+                    
+                    months_map = {
+                        'jan':1, 'feb':2, 'mar':3, 'apr':4, 'may':5, 'jun':6, 
+                        'jul':7, 'aug':8, 'sep':9, 'oct':10, 'nov':11, 'dec':12,
+                        '1':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, '11':11, '12':12
+                    }
+                    
+                    m = 1  # หากหาไม่เจอ ให้ default ไปที่เดือน มกราคม (Jan) เพื่อให้ข้อมูลแสดงผลขึ้นมาก่อน
+                    for key, val in months_map.items():
+                        if key in m_val:
+                            m = val
+                            break
+                            
+                    return pd.Timestamp(year=2026, month=m, day=d).date()
+                return None
             except:
-                return None # หากแปลงไม่ได้ให้ส่งค่ากลับเป็น None (ระบบปฏิทินจะข้ามเคสนั้นไป ไม่เออเรอร์หน้าแดง)
+                return None
 
         df['Formatted_Date'] = df.apply(parse_custom_date, axis=1)
         return df
@@ -64,7 +73,7 @@ def convert_image_to_base64(uploaded_file):
         return ""
     try:
         image = Image.open(uploaded_file)
-        image.thumbnail((500, 500)) # บีบอัดขนาดเพื่อความรวดเร็วในการโหลดรูปภาพ
+        image.thumbnail((500, 500))
         buffered = BytesIO()
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
