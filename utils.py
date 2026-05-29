@@ -4,51 +4,38 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# 🔗 ใส่ ID ของ Google Sheet (แกะมาจากลิงก์สเปรดชีตหลักของคุณเรียบร้อยแล้ว)
+# 🔗 ลิงก์ ID ของ Google Sheet หลัก
 SHEET_ID = "1c2sJ3uDxUa39ARePd-Ry7Z5p3ZhqQYgyXTr2gLYSqaU"
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=3)
 def load_data():
-    # เปลี่ยนมาดึงข้อมูลผ่านรูปแบบ CSV เพื่อให้ได้ข้อความรหัส Base64 เต็ม 100% ไม่โดนระบบตัดคำ
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
         df = pd.read_csv(url)
-        df.columns = df.columns.str.strip() # ล้างช่องว่างที่หัวคอลัมน์
-        df = df.dropna(how='all')
+        df.columns = df.columns.str.strip()
+        df = df.dropna(subset=['Topic/risk finding', 'Responsible Person'], how='all')
         
-        # 💡 ระบบ Mapping ชื่อคอลัมน์อัตโนมัติ เผื่อในชีทสะกดต่างกัน
-        mapping = {}
+        # คลีนช่องว่างภายในข้อความเพื่อความปลอดภัย
         for col in df.columns:
-            col_lower = str(col).lower()
-            if 'วัน' in col_lower or 'date' in col_lower or 'ว/ด/ป' in col_lower:
-                mapping[col] = 'ว/ด/ป'
-            elif 'before' in col_lower or 'ก่อน' in col_lower:
-                mapping[col] = 'Picture (before)'
-            elif 'after' in col_lower or 'หลัง' in col_lower:
-                mapping[col] = 'Picture (After)'
-            elif 'responsible' in col_lower or 'ผู้รับผิดชอบ' in col_lower or 'owner' in col_lower:
-                mapping[col] = 'Responsible Person'
-            elif 'status' in col_lower or 'สถานะ' in col_lower:
-                mapping[col] = 'Status'
-            elif 'topic' in col_lower or 'ประเด็น' in col_lower or 'finding' in col_lower or 'risk' in col_lower:
-                mapping[col] = 'Topic/risk finding'
-            elif 'location' in col_lower or 'สถานที่' in col_lower:
-                mapping[col] = 'Location'
-            elif 'action' in col_lower or 'แก้ไข' in col_lower:
-                mapping[col] = 'Corrective Action'
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.strip()
 
-        df = df.rename(columns=mapping)
-        
-        # สร้างคอลัมน์มาตรฐานสำรองไว้กันระบบพัง
-        standard_cols = ['ว/ด/ป', 'Picture (before)', 'Picture (After)', 'Responsible Person', 'Status', 'Topic/risk finding', 'Location', 'Corrective Action']
-        for col in standard_cols:
-            if col not in df.columns:
-                df[col] = None
+        # 🛠️ ซ่อมสร้างคอลัมน์แปลงวันทีสำหรับปฏิทิน (เนื่องจากในสเปรดชีตจริงของคุณคอลัมน์ Date มีค่าเป็นตัวเลขโดด ๆ เช่น 19)
+        # ระบบจะพยายามเดาวันที่ของปีปัจจุบันให้อัตโนมัติ เพื่อให้แสดงผลบนปฏิทินได้ไม่พัง
+        def parse_custom_date(row):
+            try:
+                d = int(float(str(row.get('Date', '1'))))
+                m_str = str(row.get('Month', 'May')).strip().title()[:3]
+                months = {'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
+                m = months.get(m_str, 5)
+                return pd.Timestamp(year=2026, month=m, day=d).date()
+            except:
+                return pd.Timestamp.now().date()
 
-        df['Formatted_Date'] = pd.to_datetime(df['ว/ด/ป'], errors='coerce').dt.date
+        df['Formatted_Date'] = df.apply(parse_custom_date, axis=1)
         return df
     except Exception as e:
-        st.error(f"ระบบไม่สามารถดึงข้อมูลสเปรดชีตได้: {e}")
+        st.error(f"ระบบหลังบ้านไม่สามารถดึงข้อมูลสเปรดชีตได้: {e}")
         return pd.DataFrame()
 
 def get_status_group(status_value):
@@ -67,16 +54,13 @@ def convert_image_to_base64(uploaded_file):
         return ""
     try:
         image = Image.open(uploaded_file)
-        # บีบอัดภาพให้อยู่ในขนาดสูงสุดไม่เกิน 700px เพื่อไม่ให้ความยาวข้อความล้นข้อจำกัดของกูเกิ้ลเซลล์
-        image.thumbnail((700, 700))
-        
+        image.thumbnail((500, 500)) # ควบคุมขนาดให้ประหยัดพื้นที่สเปรดชีต
         buffered = BytesIO()
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
-        # เซฟภาพเป็น JPEG คุณภาพ 70% เพื่อประหยัดพื้นที่บนชีทและทำให้ระบบประมวลผลเร็วขึ้น
-        image.save(buffered, format="JPEG", quality=70)
+        image.save(buffered, format="JPEG", quality=65)
         img_str = base64.b64encode(buffered.getvalue()).decode()
         return f"data:image/jpeg;base64,{img_str}"
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการประมวลผลรูปภาพ: {e}")
+        st.error(f"การแปลงรูปภาพขัดข้อง: {e}")
         return ""
