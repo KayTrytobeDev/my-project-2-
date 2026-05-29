@@ -3,11 +3,11 @@ import plotly.express as px
 import datetime
 import pandas as pd
 from streamlit_calendar import calendar
-from utils import load_data, get_status_type
+from utils import load_data, get_status_group
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
 
-# ตกแต่ง UI ด้วย CSS สไตล์คลีน สะอาดตา ดูง่าย
+# ตกแต่งหน้าจอโปรแกรมให้ดูเรียบหรู คลีน สะอาดตา อ่านข้อมูลได้ง่าย
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -37,14 +37,14 @@ try:
         "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก"
     ])
 
-    # ----------------------------------------------------
-    # MENU 1: ปฏิทินติดตามงาน (รายวัน)
-    # ----------------------------------------------------
+    # ====================================================
+    # MENU 1: ระบบหน้าปฏิทิน
+    # ====================================================
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
-        st.write("💡 *คลิกที่แถบสีของงานบนปฏิทิน เพื่อเปิดดูรายละเอียดและรูปภาพด้านล่าง*")
+        st.write("💡 *คลิกเลือกวันที่หรือแถบสีงานบนปฏิทิน เพื่อดึงรายละเอียดและรูปภาพมาตรวจดูด้านล่าง*")
         
-        # ตัวเลือกตัวกรองด้านบน
+        # ดึงรายชื่อผู้รับผิดชอบและสถานะมาทำปุ่มกรอง (Dropdown Filter)
         raw_owners = df_raw['Responsible Person'].dropna().astype(str).unique().tolist()
         owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if o.strip() != ''])
         
@@ -55,26 +55,26 @@ try:
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
         with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
-        # กรองข้อมูลตามเงื่อนไขที่เลือกแบบปลอดภัยทีละสเต็ป
+        # 🛠️ ขั้นตอนการกรองข้อมูลแบบ Clean-Logic (ตัดปัญหาสนทนาซ้ำซ้อนที่ทำให้เกิด Error)
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
         if sel_status != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
 
-        # เตรียมข้อมูล Events ลงปฏิทินและแยกสีตามสถานะใหม่
+        # ประกอบกิจกรรมเพื่อนำไปวาดหมุดบนปฏิทิน
         calendar_events = []
         df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
         
         for idx, row in df_with_date.iterrows():
-            status_type = get_status_type(row.get('Status'))
+            group = get_status_group(row.get('Status'))
             topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
             date_str = str(row['Formatted_Date'])
             
-            # แยกสีบนปฏิทินตามสถานะจริง
-            if status_type == "complete": bg_color = "#10B981"      # เขียว
-            elif status_type == "on_process": bg_color = "#3B82F6"  # ฟ้า/น้ำเงิน
-            else: bg_color = "#F59E0B"                              # ส้ม/เหลือง
+            # ไฮไลท์สีตามสถานะงานจริงแบบ 3 กลุ่มคำสั่ง
+            if group == "complete": bg_color = "#10B981"       # เขียว
+            elif group == "on_process": bg_color = "#3B82F6"   # ฟ้า/น้ำเงิน
+            else: bg_color = "#F59E0B"                         # ส้ม/เหลือง
             
             calendar_events.append({
                 "title": f"📍 {topic}", "start": date_str, "end": date_str,
@@ -86,14 +86,15 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        # วาดปฏิทินลงหน้าจอ
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v5')
+        # แสดงผลตัวปฏิทินบนหน้าเว็บ
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v6')
         
+        # ตรวจจับค่าเมื่อผู้ใช้งานกดคลิกบนปฏิทิน
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
-        # แสดงรายการการ์ดเมื่องานในวันที่ถูกเลือกถูกเปิดขึ้นมา
+        # เปิดหน้าต่างการ์ดแสดงผลเมื่อคลิกเลือกงาน
         if selected_date:
             st.success(f"📂 เปิดดูบันทึกข้อมูลประจำวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)]
@@ -101,19 +102,18 @@ try:
             if not df_display.empty:
                 st.divider()
                 for idx, row in df_display.iterrows():
-                    status_type = get_status_type(row.get('Status'))
+                    group = get_status_group(row.get('Status'))
                     
-                    # เลือกสไตล์การ์ดและป้ายตามสถานะ
-                    if status_type == "complete":
-                        card_class, badge_html = "card card-complete", '<span class="status-badge badge-complete">✅ เรียบร้อย</span>'
-                    elif status_type == "on_process":
-                        card_class, badge_html = "card card-on-process", '<span class="status-badge badge-on-process">⏳ On process</span>'
+                    if group == "complete":
+                        card_style, badge_html = "card card-complete", '<span class="status-badge badge-complete">✅ เรียบร้อย</span>'
+                    elif group == "on_process":
+                        card_style, badge_html = "card card-on-process", '<span class="status-badge badge-on-process">⏳ On process</span>'
                     else:
-                        card_class, badge_html = "card card-pending", '<span class="status-badge badge-pending">📌 รอดำเนินการ</span>'
+                        card_style, badge_html = "card card-pending", '<span class="status-badge badge-pending">📌 รอดำเนินการ</span>'
                     
                     with st.container():
                         st.markdown(f"""
-                            <div class="{card_class}">
+                            <div class="{card_style}">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
                                     <h3 style="margin:0; color:#1E3A8A;">📍 {row.get('Topic/risk finding') or 'ไม่ระบุหัวข้อ'}</h3>
                                     {badge_html}
@@ -135,24 +135,24 @@ try:
                             if pd.notna(row['Picture (After)']) and str(row['Picture (After)']).startswith('http'):
                                 st.image(row['Picture (After)'], use_container_width=True)
                             else:
-                                st.info("💡 เคสนี้ยังไม่มีการแนบลิงก์รูปภาพรายงาน After")
+                                st.info("💡 เคสนี้ยังไม่มีการแนบภาพรายงานผลหลังแก้ไข (After)")
                         st.markdown("<br>", unsafe_allow_html=True)
             else:
-                st.warning("ไม่มีข้อมูลที่ตรงกับตัวเลือกการกรองในวันนี้")
+                st.warning("ไม่มีงานที่ตรงกับเงื่อนไขการกรองของคุณในวันนี้")
         else:
-            st.info("👆 แนะนำให้ลองคลิกเลือกที่ แถบสีงาน บนหน้าปฏิทินเพื่อเรียกดูรูปภาพรายงานได้ทันทีครับ")
+            st.info("👆 แนะนำให้คุณลองกดคลิกที่ แถบกล่องสีของงาน บนปฏิทินเพื่อเรียกดูรูปภาพประกอบได้ทันทีครับ")
 
-    # ----------------------------------------------------
-    # MENU 2: หน้าแดชบอร์ดสรุปภาพรวม (Dashboard)
-    # ----------------------------------------------------
+    # ====================================================
+    # MENU 2: หน้าแดชบอร์ดรายงานภาพรวม
+    # ====================================================
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         
         if df_raw.empty:
-            st.info("ไม่มีข้อมูลที่จะนำมาคำนวณแดชบอร์ด")
+            st.info("ระบบไม่มีข้อมูลในชีทที่พร้อมนำมาวิเคราะห์สถิติ")
         else:
             total = len(df_raw)
-            df_raw['status_group'] = df_raw['Status'].apply(get_status_type)
+            df_raw['status_group'] = df_raw['Status'].apply(get_status_group)
             
             done = (df_raw['status_group'] == 'complete').sum()
             on_process = (df_raw['status_group'] == 'on_process').sum()
@@ -180,15 +180,15 @@ try:
                                      color_discrete_sequence=['#10B981', '#3B82F6', '#F59E0B'])
                     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # ----------------------------------------------------
-    # MENU 3: หน้าฟอร์มบันทึกข้อมูล
-    # ----------------------------------------------------
+    # ====================================================
+    # MENU 3: หน้าบันทึกข้อมูลเพิ่ม
+    # ====================================================
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ ระบบกรอกข้อมูลเพิ่มประเด็นความเสี่ยง")
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("direct_sheet_form_v5", clear_on_submit=True):
+            with st.form("direct_sheet_form_v6", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ (ว/ด/ป)", datetime.date.today())
@@ -209,9 +209,9 @@ try:
                     if not new_topic or not new_owner:
                         st.error("❌ ไม่สามารถบันทึกได้: กรุณากรอกหัวข้อประเด็นและผู้รับผิดชอบให้ครบถ้วน")
                     else:
-                        st.success("🎉 บันทึกข้อมูลเข้าสเปรดชีตเรียบร้อยแล้ว!")
+                        st.success("🎉 บันทึกข้อมูลส่งออกไปยังตารางหลักเสร็จสมบูรณ์!")
                         st.balloons()
             st.markdown('</div>', unsafe_allow_html=True)
 
 except Exception as e:
-    st.error(f"เกิดข้อผิดพลาดในการรันแอปพลิเคชัน: {e}")
+    st.error(f"เกิดข้อผิดพลาดในการโหลดระบบ: {e}")
