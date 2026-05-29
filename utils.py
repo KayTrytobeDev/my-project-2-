@@ -7,14 +7,18 @@ def load_data():
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     
     df = pd.read_csv(url)
-    # ล้างช่องว่างทั้งชื่อคอลัมน์และข้อมูลด้านใน
     df.columns = df.columns.str.strip()
     
-    # 💡 อุดรอยรั่ว: ถ้าในชีทตั้งชื่อว่า "สถานะ" ให้เปลี่ยนเป็น "Status" อัตโนมัติในระบบ
+    # ดักจับชื่อคอลัมน์ภาษาไทย
     if 'สถานะ' in df.columns:
         df = df.rename(columns={'สถานะ': 'Status'})
     if 'ผู้รับผิดชอบ' in df.columns:
         df = df.rename(columns={'ผู้รับผิดชอบ': 'Responsible Person'})
+        
+    # 💡 แปลงคอลัมน์ ว/ด/ป ให้เป็นข้อมูลวันที่ของ Python (Datetime) เพื่อให้เทียบกับปฏิทินได้แม่นยำ
+    if 'ว/ด/ป' in df.columns:
+        # พยายามแปลงวันที่แบบยืดหยุ่น (รองรับทั้งรูปแบบ Day/Month/Year และ Year-Month-Day)
+        df['Formatted_Date'] = pd.to_datetime(df['ว/ด/ป'], errors='coerce').dt.date
         
     return df
 
