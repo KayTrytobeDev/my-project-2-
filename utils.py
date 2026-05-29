@@ -1,17 +1,17 @@
 import streamlit as st
 import pandas as pd
 
-# ลิงก์สำหรับดึงข้อมูลจาก Master File ของคุณ
+# ลิงก์ดึงข้อมูลจาก Google Sheet Master File ของคุณ
 SHEET_ID = "1c2sJ3uDxUa39ARePd-Ry7Z5p3ZhqQYgyXTr2gLYSqaU"
 
-@st.cache_data(ttl=5)  # ดึงข้อมูลใหม่ทุกๆ 5 วินาทีเพื่อให้เห็นข้อมูลล่าสุด
+@st.cache_data(ttl=5)
 def load_data():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
         df = pd.read_csv(url)
         df.columns = df.columns.str.strip()  # ล้างช่องว่างหัวคอลัมน์
         
-        # 💡 ค้นหาและแมตช์ชื่อคอลัมน์ผ่านคำสำคัญ (Keyword Mapping) เพื่อความยืดหยุ่นสูง
+        # 💡 ระบบตรวจจับหัวข้อคำสำคัญอัตโนมัติ (Keyword Mapping)
         mapping = {}
         for col in df.columns:
             col_lower = str(col).lower()
@@ -34,20 +34,21 @@ def load_data():
 
         df = df.rename(columns=mapping)
         
-        # อุดรอยรั่ว: สร้างคอลัมน์มาตรฐานสำรองไว้ล่วงหน้า
+        # สร้างคอลัมน์มาตรฐานสำรองไว้ป้องกันระบบพัง
         for standard_col in ['ว/ด/ป', 'Picture (before)', 'Picture (After)', 'Responsible Person', 'Status', 'Topic/risk finding', 'Location', 'Corrective Action']:
             if standard_col not in df.columns:
                 df[standard_col] = None
 
-        # แปลงวันที่ให้อยู่ในรูปแบบ Date วัตถุอย่างปลอดภัย
+        # แปลงวันที่ให้อยู่ในรูปแบบที่ระบบเข้าใจได้ปลอดภัย
         df['Formatted_Date'] = pd.to_datetime(df['ว/ด/ป'], errors='coerce').dt.date
         return df
     except Exception as e:
-        st.error(f"ระบบไม่สามารถดึงข้อมูลจาก Google Sheet ได้: {e}")
+        st.error(f"เกิดข้อผิดพลาดในการโหลดข้อมูล: {e}")
         return pd.DataFrame()
 
-def check_complete(status_text):
+def get_status_type(status_text):
+    """ฟังก์ชันแบ่งกลุ่มสถานะเพื่อนำไปกำหนดสีและแท็ก"""
     if pd.isna(status_text):
-        return False
-    status_str = str(status_text).strip()
-    return any(word in status_str for word in ["เรียบร้อย", "Complete", "complete", "เสร็จสิ้น", "สำเร็จ", "✅"])
+        return "pending"
+        
+    status_str = str(status_text).
