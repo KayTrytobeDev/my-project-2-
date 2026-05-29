@@ -7,7 +7,7 @@ from utils import load_data, check_complete
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
 
-# ปรับสไตล์ UI ให้พรีเมียม สบายตา คอนทราสต์ตัวหนังสือชัดเจน
+# ปรับสไตล์ UI ให้พรีเมียมและอ่านง่าย
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -36,9 +36,9 @@ try:
 
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
-        st.write("💡 *คลิกเลือกแถบสีของงานบนปฏิทินเพื่อดึงรูปภาพ Before / After และรายละเอียดลงมาแสดงด้านล่าง*")
+        st.write("💡 *คลิกเลือกวันที่หรือแถบสีงานบนปฏิทิน เพื่อเรียกเปิดดูรายละเอียดภาพประกอบ Before & After*")
         
-        # ดึงตัวเลือกกรอกข้อมูลแบบปลอดภัย เคลียร์ค่าว่างทิ้ง
+        # คัดกรองตัวเลือกเมนู Dropdown แบบสะอาด ป้องกันค่าว่าง
         raw_owners = df_raw['Responsible Person'].dropna().astype(str).unique().tolist()
         owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if o.strip() != ''])
         
@@ -51,14 +51,14 @@ try:
         with f_col2:
             sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
-        # 🛠️ แยกร่างการกรองข้อมูลออกจากกันเด็ดขาด (ป้องกัน Error ภาพที่ 3 และ 4)
+        # 🛠️ ปรับเปลี่ยนวิธีการกรองข้อมูลแยกกันโดยเด็ดขาด (แก้ไขปัญหารูปภาพที่ 3, 4, และ 5)
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
         if sel_status != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
 
-        # นำเฉพาะก้อนข้อมูลที่กรองผ่านแล้วมาวาดหมุดบนปฏิทิน
+        # สร้าง Events สำหรับติดตั้งลงบนแผงปฏิทิน
         calendar_events = []
         df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
         
@@ -85,17 +85,17 @@ try:
             "locale": "th"
         }
         
-        # วาดปฏิทินลงหน้าเว็บ
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v2')
+        # แสดงปฏิทินลงหน้าอินเทอร์เฟซ
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v3')
         
-        # ดักจับค่าการคลิก
+        # จับจังหวะการกดคลิกเลือกช่องปฏิทินของผู้ใช้งาน
         selected_date = None
         if cal_data.get("eventClick"): 
             selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): 
             selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
-        # ถ้ามีการกดเลือกวันที่ ให้ดึงการ์ดรายงานมาโชว์ด้านล่าง
+        # แสดงผลข้อมูลเฉพาะวันที่ผู้ใช้กดเลือก
         if selected_date:
             st.success(f"📂 เปิดดูบันทึกข้อมูลประจำวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)]
@@ -131,18 +131,18 @@ try:
                             if is_complete and pd.notna(row['Picture (After)']) and str(row['Picture (After)']).startswith('http'):
                                 st.image(row['Picture (After)'], use_container_width=True)
                             elif not is_complete:
-                                st.info("💡 เคสนี้อยู่ระหว่างดำเนินการแก้ไข (ยังไม่มีภาพรายงาน After)")
+                                st.info("💡 เคสนี้อยู่ในระหว่างการดำเนินงาน (ยังไม่มีภาพแนบรายงาน After)")
                         st.markdown("<br>", unsafe_allow_html=True)
             else:
-                st.warning("ไม่มีงานที่มีกำหนดหรือสถานะตรงกับการกรองในวันที่เลือกนี้")
+                st.warning("ไม่มีข้อมูลที่ตรงกับตัวเลือกการกรองของคุณในวันนี้")
         else:
-            st.info("👆 สามารถคลิกจิ้มที่กล่องสีเหลือง/เขียว หรือช่องวันที่บนปฏิทิน เพื่อสลัดเปิดดูภาพประกอบ Before & After ได้ครับ")
+            st.info("👆 คุณสามารถกดคลิกแถบสีงาน หรือกล่องวันที่บนปฏิทินเพื่อดึงรูปภาพขึ้นมาดูได้เลยครับ")
 
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         
         if df_raw.empty:
-            st.info("ไม่มีข้อมูลในระบบชีทที่จะมาคำนวณแดชบอร์ด")
+            st.info("ยังไม่มีข้อมูลพร้อมใช้สำหรับคำนวณแดชบอร์ด")
         else:
             total = len(df_raw)
             done = df_raw['Status'].apply(check_complete).sum()
@@ -171,11 +171,11 @@ try:
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ ระบบกรอกข้อมูลเพิ่มประเด็นความเสี่ยง")
-        st.write("กรอกแบบฟอร์มด้านล่างเพื่อทำการกดบันทึกข้อมูลใหม่ลงในตารางหลัก")
+        st.write("กรอกแบบฟอร์มด้านล่างเพื่ออัปเดตแถวข้อมูลเข้าไปยังตาราง Master File โดยตรง")
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("direct_sheet_form_v2", clear_on_submit=True):
+            with st.form("direct_sheet_form_v3", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ (ว/ด/ป)", datetime.date.today())
@@ -196,7 +196,7 @@ try:
                     if not new_topic or not new_owner:
                         st.error("❌ ไม่สามารถบันทึกได้: กรุณากรอกหัวข้อประเด็นและผู้รับผิดชอบให้ครบถ้วน")
                     else:
-                        st.success("🎉 บันทึกข้อมูลเข้าสู่ไฟล์ Master เรียบร้อยแล้ว! แผงปฏิทินจะอัปเดตข้อมูลแท็กสีให้ทันทีเมื่อรีเฟรช")
+                        st.success("🎉 บันทึกข้อมูลเรียบร้อยแล้ว! ข้อมูลจะแสดงและไฮไลท์แถบสีบนหน้าปฏิทินทันทีเมื่อกดรีเฟรช")
                         st.balloons()
             st.markdown('</div>', unsafe_allow_html=True)
 
