@@ -183,7 +183,7 @@ try:
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงและรูปภาพ")
         
         # ⚠️ เอา URL Web App ที่ได้จากการ Deploy Google Apps Script มาใส่ตรงเครื่องหมายคำพูดด้านล่างนี้ครับ
-        API_URL = "https://script.google.com/macros/s/AKfycbx25dTXwzz9evXxS154VTP0IZcomM3BxMP5D_o4iOi6JBMWvbYEvXJ16Bw2YCZkC6TPZg/exec"
+        API_URL = "https://script.google.com/macros/s/AKfycbxnvUQZBVGtS3rAYUMqQYSfLCry_i7-88LPzXsoIW1Z5n27bqlMwlLyHA5ZfDg4Vvjn8w/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
