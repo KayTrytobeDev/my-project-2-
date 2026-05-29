@@ -20,6 +20,14 @@ st.markdown("""
     .badge-complete { background-color: #D1FAE5; color: #065F46; }
     .badge-on-process { background-color: #DBEAFE; color: #1E40AF; }
     .badge-pending { background-color: #FEF3C7; color: #92400E; }
+    
+    /* สไตล์สำหรับกล่องระดับความเสี่ยง Risk Level */
+    .risk-badge { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; margin-left: 10px; color: white; }
+    .risk-low { background-color: #10B981; }
+    .risk-medium { background-color: #F59E0B; }
+    .risk-high { background-color: #EF4444; }
+    .risk-unknown { background-color: #6B7280; }
+
     .form-container { background-color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
     .metric-box { background-color: #EEF2F6; padding: 15px; border-radius: 8px; border: 1px solid #CBD5E1; text-align: center; margin-bottom: 15px; }
     </style>
@@ -38,7 +46,7 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
-        # 1. ดึงข้อมูลตัวเลือกสำหรับ Filter (ล้างพวกค่าว่างและเคส Test ออก)
+        # จัดการตัวเลือกการ Filter คัดกรองข้อมูล
         raw_owners = df_raw['Responsible Person'].dropna().unique().tolist() if 'Responsible Person' in df_raw.columns else []
         owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o).lower() != 'test'])
         
@@ -47,16 +55,14 @@ try:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
-        with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน (มี 'รอดำเนินการ' และสถานะอื่น ๆ ครบถ้วน)", statuses)
+        with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
-        # 2. คัดกรองข้อมูลตามเงื่อนไขที่เลือกด้านบน
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str).str.strip() == str(sel_owner).strip()]
         if sel_status != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Status'].astype(str).str.strip() == str(sel_status).strip()]
 
-        # 3. จัดเตรียมชุดข้อมูลสำหรับเอาไปปักลงบนปฏิทิน
         calendar_events = []
         if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
             df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
@@ -69,57 +75,50 @@ try:
                 topic = topic_val if topic_val != '' else "ไม่ระบุหัวข้อ"
                 date_str = str(row['Formatted_Date'])
                 
-                # กำหนดสีตามประเภทกลุ่มของสถานะงาน
-                if group == "complete": bg_color = "#10B981"      # สีเขียว = เรียบร้อย
-                elif group == "on_process": bg_color = "#3B82F6"  # สีฟ้า = กำลังดำเนินการ
-                else: bg_color = "#F59E0B"                        # สีส้ม = รอดำเนินการ
+                if group == "complete": bg_color = "#10B981"
+                elif group == "on_process": bg_color = "#3B82F6"
+                else: bg_color = "#F59E0B"
                 
                 calendar_events.append({
                     "title": f"📍 {topic}", "start": date_str, "end": date_str,
                     "backgroundColor": bg_color, "borderColor": bg_color, "allDay": True, "id": date_str
                 })
 
-        # 4. ตั้งค่าหน้าตาปฏิทิน
         calendar_options = {
             "headerToolbar": {"left": "today prev,next", "center": "title", "right": "dayGridMonth,listMonth"},
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        # แสดงผลปฏิทินหลักของระบบ
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v5_live')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v6_final')
         
-        # 5. 🛠️ ฟังก์ชันไฮไลท์คำนวณสรุปยอดรวมของเดือนที่กำลังเปิดดูอยู่แบบ Realtime
+        # 📊 คำนวณสรุปยอดตัวเลขจำนวนเคสในแต่ละเดือนแบบอัตโนมัติ
         current_view_month = None
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
-            # ดึงวันที่เริ่มต้นของหน้าที่กำลังแสดงอยู่เพื่อเอามาสกัดหาว่าคือเดือนอะไร
             start_date_str = cal_data["view"]["currentStart"].split("T")[0]
             try:
-                # ขยับไปดูวันกลางเดือน (บวกไป 15 วัน) เพื่อให้ระบุชื่อเดือนตรงหน้าจอได้อย่างแม่นยำ ไม่ว่าจะเป็นแบบตารางหรือแบบ List
                 current_view_month = (pd.to_datetime(start_date_str) + datetime.timedelta(days=15)).month
             except:
                 current_view_month = datetime.date.today().month
         else:
             current_view_month = datetime.date.today().month
 
-        # นับจำนวนเคสเฉพาะในเดือนที่กำลังเปิดอยู่จากข้อมูลที่กรองแล้ว
         if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
             df_filtered['Month_Num'] = pd.to_datetime(df_filtered['Formatted_Date']).dt.month
             monthly_count = len(df_filtered[df_filtered['Month_Num'] == current_view_month])
         else:
             monthly_count = 0
 
-        # แสดงกล่องสรุปจำนวนตัวเลขยอดรวมที่ด้านบนของตารางรายวัน
         months_th = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
         view_month_name = months_th[current_view_month] if current_view_month < len(months_th) else ""
         
         st.markdown(f"""
             <div class="metric-box">
-                <span style="font-size: 16px; color: #475569; font-weight: bold;">📊 ข้อมูลสรุปของเดือน {view_month_name}</span><br>
+                <span style="font-size: 16px; color: #475569; font-weight: bold;">📊 จำนวนเคสทั้งหมดของเดือน {view_month_name}</span><br>
                 <span style="font-size: 28px; color: #1E3A8A; font-weight: 900;">{monthly_count} รายการ</span>
             </div>
         """, unsafe_allow_html=True)
 
-        # 6. ส่วนตรวจสอบการดึงรายละเอียดเคสเมื่อผู้ใช้กดคลิกเลือกที่วันนั้นๆ บนปฏิทิน
+        # ตรวจจับการกดคลิกบนปฏิทินเพื่อดึงข้อมูลรายละเอียดงาน
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
@@ -135,10 +134,20 @@ try:
                     card_style = "card card-complete" if group == "complete" else ("card card-on-process" if group == "on_process" else "card card-pending")
                     badge_html = f'<span class="status-badge badge-{group}">{row.get("Status", "Pending")}</span>'
                     
+                    # 🛡️ ระบบตรวจหาและดึงคอลัมน์ "ระดับความเสี่ยง (Risk Level)" มาแมปปิ้งสีแสดงผล
+                    r_level = str(row.get('Risk Level', row.get('RiskLvl', row.get('Risk', 'ไม่มีข้อมูล')))).strip()
+                    if 'low' in r_level.lower() or 'ต่ำ' in r_level: risk_class = "risk-badge risk-low"
+                    elif 'med' in r_level.lower() or 'กลาง' in r_level: risk_class = "risk-badge risk-medium"
+                    elif 'high' in r_level.lower() or 'สูง' in r_level: risk_class = "risk-badge risk-high"
+                    else: risk_class = "risk-badge risk-unknown"
+                    
                     st.markdown(f"""
                         <div class="{card_style}">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <h3 style="margin:0; color:#1E3A8A;">📍 {row.get('Topic/risk finding','N/A')}</h3>
+                                <h3 style="margin:0; color:#1E3A8A;">
+                                    📍 {row.get('Topic/risk finding','N/A')}
+                                    <span class="{risk_class}">⚠️ ระดับความเสี่ยง: {r_level}</span>
+                                </h3>
                                 {badge_html}
                             </div>
                             <p style="font-size:14px; color:#4B5563; margin-top:5px;">🏢 <b>สถานที่:</b> {row.get('Location','N/A')} | 👤 <b>ผู้รับผิดชอบ:</b> {row.get('Responsible Person','N/A')}</p>
@@ -172,13 +181,11 @@ try:
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
-        
-        # ลิงก์ API เชื่อมหลังบ้านอัตโนมัติของคุณ
         API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v6", clear_on_submit=True):
+            with st.form("risk_form_v6_final", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -187,6 +194,8 @@ try:
                 with col2:
                     new_owner = st.text_input("👤 ผู้รับผิดชอบ (Responsible Person)*")
                     new_status = st.selectbox("🔘 สถานะงาน", ["รอดำเนินการ", "กำลังดำเนินการ", "เรียบร้อย"])
+                    # เพิ่มกล่องเลือก Risk Level ตอนบันทึกข้อมูลเพิ่มใหม่ผ่านแอปหน้าเว็บ
+                    new_risk = st.selectbox("⚠️ ระดับความเสี่ยง (Risk Level)", ["Low", "Medium", "High"])
                 
                 new_action = st.text_area("🔧 แนวทางการจัดการแก้ไข (Corrective Action)")
                 st.markdown("---")
@@ -209,6 +218,7 @@ try:
                                 "location": new_location,
                                 "owner": new_owner,
                                 "status": new_status,
+                                "risk_level": new_risk, # ส่งข้อมูลความเสี่ยงไปบันทึกเพิ่มด้วย
                                 "action": new_action,
                                 "pic_before": convert_image_to_base64(up_before),
                                 "pic_after": convert_image_to_base64(up_after)
