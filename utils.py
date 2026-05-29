@@ -1,5 +1,8 @@
 import streamlit as st
 import pandas as pd
+import base64
+from io import BytesIO
+from PIL import Image
 
 # ลิงก์เชื่อมโยงกับ Google Sheet หลักของคุณ
 SHEET_ID = "1c2sJ3uDxUa39ARePd-Ry7Z5p3ZhqQYgyXTr2gLYSqaU"
@@ -40,7 +43,7 @@ def load_data():
             if col not in df.columns:
                 df[col] = None
 
-        # แปลงวันที่แบบปลอดภัย (ช่องไหนไม่ใช่วันที่จะกลายเป็น NaT แทนการเกิด Error)
+        # แปลงวันที่แบบปลอดภัย
         df['Formatted_Date'] = pd.to_datetime(df['ว/ด/ป'], errors='coerce').dt.date
         return df
     except Exception as e:
@@ -51,15 +54,30 @@ def get_status_group(status_value):
     """ฟังก์ชันคัดกรองสถานะออกเป็น 3 คลาสหลัก สำหรับกำหนดสีการแสดงผล"""
     if pd.isna(status_value):
         return "pending"
-        
     status_str = str(status_value).strip().lower()
-    
-    # 1. กลุ่มเสร็จสิ้น (Complete) -> สีเขียว
     if any(x in status_str for x in ["เรียบร้อย", "complete", "เสร็จสิ้น", "สำเร็จ", "✅", "done"]):
         return "complete"
-    # 2. กลุ่มกำลังทำ (On process) -> สีฟ้า
     elif any(x in status_str for x in ["on process", "onprocess", "กำลังทำ", "ดำเนิน", "🔄"]):
         return "on_process"
-    # 3. กลุ่มค้างคา (Pending) -> สีส้ม
     else:
         return "pending"
+
+def convert_image_to_base64(uploaded_file):
+    """ฟังก์ชันแปลงไฟล์ภาพที่อัปโหลดให้เป็นข้อความ Base64 แบบย่อขนาดให้เบาลง"""
+    if uploaded_file is None:
+        return ""
+    try:
+        image = Image.open(uploaded_file)
+        # ปรับขนาดภาพลงเล็กน้อยเพื่อไม่ให้ข้อมูลใน Google Sheet ยาวเกินไป (บีบอัดเพื่อความเร็ว)
+        image.thumbnail((800, 800))
+        
+        buffered = BytesIO()
+        # แปลงเป็นไฟล์ JPEG เพื่อความเบาของข้อมูล
+        if image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
+        image.save(buffered, format="JPEG", quality=75)
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+        return f"data:image/jpeg;base64,{img_str}"
+    except Exception as e:
+        st.error(f"เกิดข้อผิดพลาดในการแปลงไฟล์รูปภาพ: {e}")
+        return ""
