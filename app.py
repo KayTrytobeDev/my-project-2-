@@ -38,10 +38,10 @@ try:
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
         raw_owners = df_raw['Responsible Person'].dropna().unique().tolist() if 'Responsible Person' in df_raw.columns else []
-        owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if str(o).strip() != ''])
+        owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan'])
         
         raw_statuses = df_raw['Status'].dropna().unique().tolist() if 'Status' in df_raw.columns else []
-        statuses = ["ทั้งหมด"] + sorted([s for s in raw_statuses if str(s).strip() != ''])
+        statuses = ["ทั้งหมด"] + sorted([s for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan'])
 
         f_col1, f_col2 = st.columns(2)
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
@@ -55,6 +55,7 @@ try:
 
         calendar_events = []
         if 'Formatted_Date' in df_filtered.columns:
+            # กรองเอาเฉพาะแถวที่มีวันที่สมบูรณ์สำหรับแสดงบนปฏิทิน
             df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
             for idx, row in df_with_date.iterrows():
                 group = get_status_group(row.get('Status'))
@@ -75,7 +76,7 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_prod')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_prod_v3')
         
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
@@ -103,7 +104,6 @@ try:
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    # แสดงผลรูปภาพแบบล้างช่องว่าง (Base64 Safe-Render)
                     img_col1, img_col2 = st.columns(2)
                     with img_col1:
                         pic_b = str(row.get('Picture (before)', '')).strip().replace(" ", "")
@@ -114,27 +114,28 @@ try:
                         if pic_a and (pic_a.startswith('data:image') or pic_a.startswith('http')):
                             st.image(pic_a, caption="✅ ภาพหลังแก้ไข (After)", use_container_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
+            else:
+                st.warning("ไม่มีข้อมูลที่ตรงเงื่อนไขการกรองในวันนี้")
 
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if not df_raw.empty:
-            df_raw['group'] = df_raw['Status'].apply(get_status_group)
-            st.metric("รวมเคสทั้งหมด", f"{len(df_raw)} รายการ")
+            st.metric("รวมเคสทั้งหมดในระบบ", f"{len(df_raw)} รายการ")
             c1, c2 = st.columns(2)
             with c1:
-                st.plotly_chart(px.bar(df_raw, x='Responsible Person', title="งานแยกตามบุคคล"), use_container_width=True)
+                st.plotly_chart(px.bar(df_raw, x='Responsible Person', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
             with c2:
-                st.plotly_chart(px.pie(df_raw, names='Status', title="สัดส่วนสถานะ"), use_container_width=True)
+                st.plotly_chart(px.pie(df_raw, names='Status', title="สัดส่วนสถานะการดำเนินงาน"), use_container_width=True)
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # 🔗 [จุดใส่ลิงก์]: นำ URL Web App จาก Google Apps Script มาใส่ตรงนี้แทนคำว่า "วาง_URL_ตรงนี้"
+        # 🔗 [จุดใส่ลิงก์ Web App]: นำลิงก์จาก Google Apps Script มาวางแทนคำว่า "วาง_URL_ตรงนี้"
         API_URL = "https://script.google.com/macros/s/AKfycbwcuZ9obk0Vq3x4XJfrpHSrdodu4ol7L4xI2Tzbwa5pFO_KZAeaTnCgAFkELLbAmYfQFw/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v3", clear_on_submit=True):
+            with st.form("risk_form_v4", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -153,7 +154,7 @@ try:
                 
                 if st.form_submit_button("💾 ส่งข้อมูลบันทึกลงตารางหลัก"):
                     if API_URL == "วาง_URL_ตรงนี้":
-                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 141 ก่อนใช้งานครับ")
+                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 144 ก่อนใช้งานครับ")
                     elif not new_topic or not new_owner:
                         st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบ")
                     else:
