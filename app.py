@@ -3,15 +3,15 @@ import plotly.express as px
 import datetime
 import pandas as pd
 from streamlit_calendar import calendar
-from utils import load_data, get_status_group
+from utils import load_data, get_status_group, convert_image_to_base64
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
 
-# ตกแต่งหน้าจอโปรแกรมให้ดูเรียบหรู คลีน สะอาดตา อ่านข้อมูลได้ง่าย
+# ตกแต่งหน้าจอโปรแกรมสไตล์คลีน
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stDateInput label { font-size: 15px !important; font-weight: bold; color: #1E3A8A; }
+    .stSelectbox label, .stTextInput label, .stTextArea label, .stDateInput label, .stFileUploader label { font-size: 15px !important; font-weight: bold; color: #1E3A8A; }
     .card {
         background-color: white; padding: 20px; border-radius: 10px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 15px;
@@ -38,13 +38,12 @@ try:
     ])
 
     # ====================================================
-    # MENU 1: ระบบหน้าปฏิทิน
+    # MENU 1: ระบบหน้าปฏิทิน และการแสดงรูปภาพ (ทั้ง URL และ Base64)
     # ====================================================
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         st.write("💡 *คลิกเลือกวันที่หรือแถบสีงานบนปฏิทิน เพื่อดึงรายละเอียดและรูปภาพมาตรวจดูด้านล่าง*")
         
-        # ดึงรายชื่อผู้รับผิดชอบและสถานะมาทำปุ่มกรอง (Dropdown Filter)
         raw_owners = df_raw['Responsible Person'].dropna().astype(str).unique().tolist()
         owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if o.strip() != ''])
         
@@ -55,14 +54,12 @@ try:
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
         with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
-        # 🛠️ ขั้นตอนการกรองข้อมูลแบบ Clean-Logic (ตัดปัญหาสนทนาซ้ำซ้อนที่ทำให้เกิด Error)
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
         if sel_status != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
 
-        # ประกอบกิจกรรมเพื่อนำไปวาดหมุดบนปฏิทิน
         calendar_events = []
         df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
         
@@ -71,10 +68,9 @@ try:
             topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
             date_str = str(row['Formatted_Date'])
             
-            # ไฮไลท์สีตามสถานะงานจริงแบบ 3 กลุ่มคำสั่ง
-            if group == "complete": bg_color = "#10B981"       # เขียว
-            elif group == "on_process": bg_color = "#3B82F6"   # ฟ้า/น้ำเงิน
-            else: bg_color = "#F59E0B"                         # ส้ม/เหลือง
+            if group == "complete": bg_color = "#10B981"
+            elif group == "on_process": bg_color = "#3B82F6"
+            else: bg_color = "#F59E0B"
             
             calendar_events.append({
                 "title": f"📍 {topic}", "start": date_str, "end": date_str,
@@ -86,15 +82,12 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        # แสดงผลตัวปฏิทินบนหน้าเว็บ
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v6')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v7')
         
-        # ตรวจจับค่าเมื่อผู้ใช้งานกดคลิกบนปฏิทิน
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
-        # เปิดหน้าต่างการ์ดแสดงผลเมื่อคลิกเลือกงาน
         if selected_date:
             st.success(f"📂 เปิดดูบันทึกข้อมูลประจำวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)]
@@ -128,32 +121,33 @@ try:
                         img_col1, img_col2 = st.columns(2)
                         with img_col1:
                             st.caption("📸 ภาพก่อนแก้ไข (Before)")
-                            if pd.notna(row['Picture (before)']) and str(row['Picture (before)']).startswith('http'):
-                                st.image(row['Picture (before)'], use_container_width=True)
+                            pic_before = row.get('Picture (before)')
+                            if pd.notna(pic_before) and (str(pic_before).startswith('http') or str(pic_before).startswith('data:image')):
+                                st.image(pic_before, use_container_width=True)
+                                
                         with img_col2:
                             st.caption("✅ ภาพหลังแก้ไข (After)")
-                            if pd.notna(row['Picture (After)']) and str(row['Picture (After)']).startswith('http'):
-                                st.image(row['Picture (After)'], use_container_width=True)
+                            pic_after = row.get('Picture (After)')
+                            if pd.notna(pic_after) and (str(pic_after).startswith('http') or str(pic_after).startswith('data:image')):
+                                st.image(pic_after, use_container_width=True)
                             else:
                                 st.info("💡 เคสนี้ยังไม่มีการแนบภาพรายงานผลหลังแก้ไข (After)")
                         st.markdown("<br>", unsafe_allow_html=True)
             else:
                 st.warning("ไม่มีงานที่ตรงกับเงื่อนไขการกรองของคุณในวันนี้")
         else:
-            st.info("👆 แนะนำให้คุณลองกดคลิกที่ แถบกล่องสีของงาน บนปฏิทินเพื่อเรียกดูรูปภาพประกอบได้ทันทีครับ")
+            st.info("👆 แนะนำให้คุณลองกดคลิกที่ แถบกล่องสีของงาน บนปฏิทินเพื่อเรียกดูรูปภาพรายงานครับ")
 
     # ====================================================
     # MENU 2: หน้าแดชบอร์ดรายงานภาพรวม
     # ====================================================
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
-        
         if df_raw.empty:
             st.info("ระบบไม่มีข้อมูลในชีทที่พร้อมนำมาวิเคราะห์สถิติ")
         else:
             total = len(df_raw)
             df_raw['status_group'] = df_raw['Status'].apply(get_status_group)
-            
             done = (df_raw['status_group'] == 'complete').sum()
             on_process = (df_raw['status_group'] == 'on_process').sum()
             pending = total - done - on_process
@@ -181,14 +175,15 @@ try:
                     st.plotly_chart(fig_pie, use_container_width=True)
 
     # ====================================================
-    # MENU 3: หน้าบันทึกข้อมูลเพิ่ม
+    # MENU 3: หน้าฟอร์มบันทึกข้อมูล (เปลี่ยนเป็นปุ่มเลือกไฟล์รูปภาพ)
     # ====================================================
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ ระบบกรอกข้อมูลเพิ่มประเด็นความเสี่ยง")
+        st.info("💡 ตัวเลือกอัปเดตรูปภาพเปลี่ยนเป็นระบบ เลือกไฟล์โดยตรง จากเครื่องคอมพิวเตอร์หรือโทรศัพท์มือถือเรียบร้อยแล้ว")
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("direct_sheet_form_v6", clear_on_submit=True):
+            with st.form("direct_sheet_form_v7", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ (ว/ด/ป)", datetime.date.today())
@@ -200,8 +195,13 @@ try:
                 
                 new_action = st.text_area("🔧 แนวทางการแก้ไข (Corrective Action)")
                 st.markdown("---")
-                new_pic_before = st.text_input("📸 URL ลิงก์รูปภาพก่อนแก้ไข (Before)")
-                new_pic_after = st.text_input("✅ URL ลิงก์รูปภาพหลังแก้ไข (After)")
+                
+                # 📸 ปุ่มอัปโหลดรูปภาพตัวใหม่แทนที่กล่องใส่ URL เดิม
+                img_input_col1, img_input_col2 = st.columns(2)
+                with img_input_col1:
+                    uploaded_before = st.file_uploader("📸 เลือกรูปภาพก่อนแก้ไข (Before)", type=["png", "jpg", "jpeg"])
+                with img_input_col2:
+                    uploaded_after = st.file_uploader("✅ เลือกรูปภาพหลังแก้ไข (After)", type=["png", "jpg", "jpeg"])
                 
                 submit_btn = st.form_submit_button("💾 กดบันทึกส่งข้อมูลเข้า Google Sheet")
                 
@@ -209,7 +209,15 @@ try:
                     if not new_topic or not new_owner:
                         st.error("❌ ไม่สามารถบันทึกได้: กรุณากรอกหัวข้อประเด็นและผู้รับผิดชอบให้ครบถ้วน")
                     else:
-                        st.success("🎉 บันทึกข้อมูลส่งออกไปยังตารางหลักเสร็จสมบูรณ์!")
+                        # แปลงไฟล์รูปภาพที่ผู้ใช้อัปโหลดให้อยู่ในรูป Base64
+                        base64_before = convert_image_to_base64(uploaded_before)
+                        base64_after = convert_image_to_base64(uploaded_after)
+                        
+                        # 📝 [ข้อมูลแจ้งเตือนผู้พัฒนาสำหรับฝั่งหลังบ้านเชื่อมต่อ Sheet API]
+                        # เวลานำข้อมูลไปเซฟลง Google Sheets ให้ส่งตัวแปร 'base64_before' และ 'base64_after' 
+                        # เข้าไปบันทึกที่คอลัมน์รูปภาพแทนตัวแปรลิงก์ URL เดิมได้เลยครับ
+                        
+                        st.success("🎉 ระบบแปลงรูปภาพเป็น Base64 และเตรียมนำเข้า Google Sheet สำเร็จ!")
                         st.balloons()
             st.markdown('</div>', unsafe_allow_html=True)
 
