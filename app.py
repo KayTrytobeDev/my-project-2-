@@ -2,11 +2,13 @@ import streamlit as st
 import plotly.express as px
 import datetime
 import pandas as pd
+import requests
 from streamlit_calendar import calendar
 from utils import load_data, get_status_group, convert_image_to_base64
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
 
+# ปรับแต่งธีมแอปพลิเคชันให้ดูคลีน สว่าง และอ่านข้อมูลง่าย สไตล์โมเดิร์น
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -29,17 +31,21 @@ st.markdown("""
 try:
     df_raw = load_data()
 
-    st.sidebar.title("📌 เมนูหลัก")
+    st.sidebar.title("📌 เมนูควบคุม")
     menu = st.sidebar.radio("เลือกโหมดการแสดงผล", [
         "📅 ปฏิทินติดตามงาน (รายวัน)", 
         "📊 สรุปภาพรวม (Dashboard)",
         "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก"
     ])
 
+    # ====================================================
+    # 📅 โหมด 1: ปฏิทินติดตามงานรายวัน
+    # ====================================================
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
-        st.write("💡 *คลิกเลือกวันที่หรือแถบสีงานบนปฏิทิน เพื่อดึงรายละเอียดและรูปภาพมาตรวจดูด้านล่าง*")
+        st.write("💡 *คลิกเลือกกล่องสีบนหน้าปฏิทิน เพื่อดึงรูปภาพและรายละเอียดงานมาตรวจสอบด้านล่าง*")
         
+        # ตัวกรองข้อมูล
         raw_owners = df_raw['Responsible Person'].dropna().astype(str).unique().tolist() if 'Responsible Person' in df_raw.columns else []
         owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if o.strip() != ''])
         
@@ -56,6 +62,7 @@ try:
         if sel_status != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
 
+        # วาดจุด Event บนปฏิทิน
         calendar_events = []
         if 'Formatted_Date' in df_filtered.columns:
             df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
@@ -64,9 +71,9 @@ try:
                 topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
                 date_str = str(row['Formatted_Date'])
                 
-                if group == "complete": bg_color = "#10B981"
-                elif group == "on_process": bg_color = "#3B82F6"
-                else: bg_color = "#F59E0B"
+                if group == "complete": bg_color = "#10B981"      # เขียว
+                elif group == "on_process": bg_color = "#3B82F6"  # ฟ้า
+                else: bg_color = "#F59E0B"                        # ส้ม
                 
                 calendar_events.append({
                     "title": f"📍 {topic}", "start": date_str, "end": date_str,
@@ -78,14 +85,15 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v8')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final')
         
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
+        # ส่วนแสดงรายเคสเมื่อผู้ใช้เลือกกดบนปฏิทิน
         if selected_date:
-            st.success(f"📂 เปิดดูบันทึกข้อมูลประจำวันที่: **{selected_date}**")
+            st.success(f"📂 กำลังแสดงข้อมูลประจำวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)] if 'Formatted_Date' in df_filtered.columns else pd.DataFrame()
             
             if not df_display.empty:
@@ -114,6 +122,7 @@ try:
                             </div>
                         """, unsafe_allow_html=True)
                         
+                        # แสดงผลรูปภาพ Before & After (รองรับทั้งลิงก์ URL ทั่วไป และ ข้อความ Base64)
                         img_col1, img_col2 = st.columns(2)
                         with img_col1:
                             st.caption("📸 ภาพก่อนแก้ไข (Before)")
@@ -127,17 +136,18 @@ try:
                             if pd.notna(pic_after) and (str(pic_after).startswith('http') or str(pic_after).startswith('data:image')):
                                 st.image(pic_after, use_container_width=True)
                             else:
-                                st.info("💡 เคสนี้ยังไม่มีการแนบภาพรายงานผลหลังแก้ไข (After)")
+                                st.info("💡 เคสนี้ยังไม่มีการแนบไฟล์ภาพรายงานผลหลังแก้ไข (After)")
                         st.markdown("<br>", unsafe_allow_html=True)
             else:
-                st.warning("ไม่มีงานที่ตรงกับเงื่อนไขการกรองของคุณในวันนี้")
-        else:
-            st.info("👆 แนะนำให้คุณลองกดคลิกที่ แถบกล่องสีของงาน บนปฏิทินเพื่อเรียกดูรูปภาพรายงานครับ")
+                st.warning("ไม่มีข้อมูลที่ตรงเงื่อนไขการกรองในวันนี้")
 
+    # ====================================================
+    # 📊 โหมด 2: สรุปภาพรวมแดชบอร์ดสถิติ
+    # ====================================================
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if df_raw.empty:
-            st.info("ระบบไม่มีข้อมูลในชีทที่พร้อมนำมาวิเคราะห์สถิติ")
+            st.info("ไม่มีข้อมูลเพียงพอต่อการคำนวณสถิติ")
         else:
             total = len(df_raw)
             df_raw['status_group'] = df_raw['Status'].apply(get_status_group)
@@ -157,53 +167,83 @@ try:
             with c1:
                 if 'Responsible Person' in df_raw.columns:
                     owner_counts = df_raw.groupby('Responsible Person').size().reset_index(name='จำนวนงาน')
-                    if not owner_counts.empty:
-                        fig_owner = px.bar(owner_counts, x='Responsible Person', y='จำนวนงาน', title="ปริมาณงานแยกตามผู้รับผิดชอบ", color_discrete_sequence=['#3B82F6'])
-                        st.plotly_chart(fig_owner, use_container_width=True)
+                    fig_owner = px.bar(owner_counts, x='Responsible Person', y='จำนวนงาน', title="ปริมาณงานแยกตามผู้รับผิดชอบ", color_discrete_sequence=['#3B82F6'])
+                    st.plotly_chart(fig_owner, use_container_width=True)
             with c2:
                 status_counts = df_raw['status_group'].value_counts().reset_index(name='จำนวน')
                 status_counts['status_group'] = status_counts['status_group'].replace({'complete': '✅ Complete', 'on_process': '⏳ On Process', 'pending': '📌 Pending'})
-                if not status_counts.empty:
-                    fig_pie = px.pie(status_counts, values='จำนวน', names='status_group', title="สัดส่วนสถานะงานทั้งหมด", hole=0.4,
-                                     color_discrete_sequence=['#10B981', '#3B82F6', '#F59E0B'])
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                fig_pie = px.pie(status_counts, values='จำนวน', names='status_group', title="สัดส่วนสถานะงานทั้งหมด", hole=0.4,
+                                 color_discrete_sequence=['#10B981', '#3B82F6', '#F59E0B'])
+                st.plotly_chart(fig_pie, use_container_width=True)
 
+    # ====================================================
+    # ➕ โหมด 3: ฟอร์มส่งข้อมูลและอัปโหลดรูปภาพเข้า Google Sheet
+    # ====================================================
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
-        st.title("➕ ระบบกรอกข้อมูลเพิ่มประเด็นความเสี่ยง")
+        st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงและรูปภาพ")
+        
+        # ⚠️ เอา URL Web App ที่ได้จากการ Deploy Google Apps Script มาใส่ตรงเครื่องหมายคำพูดด้านล่างนี้ครับ
+        API_URL = "https://script.google.com/macros/s/AKfycbx25dTXwzz9evXxS154VTP0IZcomM3BxMP5D_o4iOi6JBMWvbYEvXJ16Bw2YCZkC6TPZg/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("direct_sheet_form_v8", clear_on_submit=True):
+            with st.form("main_upload_form", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
-                    new_date = st.date_input("📅 วันที่ (ว/ด/ป)", datetime.date.today())
+                    new_date = st.date_input("📅 วันที่บันทึกข้อมูล", datetime.date.today())
                     new_topic = st.text_input("📍 ประเด็นที่พบ/ความเสี่ยง (Topic)*")
-                    new_location = st.text_input("🏢 สถานที่ (Location)")
+                    new_location = st.text_input("🏢 สถานที่เกิดเหตุ (Location)")
                 with col2:
-                    new_owner = st.text_input("👤 ผู้รับผิดชอบ (Responsible Person)*")
-                    new_status = st.selectbox("🔘 สถานะแรกเริ่ม", ["⏳ Pending", "🔄 On Process", "✅ Complete"])
+                    new_owner = st.text_input("👤 ผู้รับผิดชอบงาน (Responsible)*")
+                    new_status = st.selectbox("🔘 สถานะงาน", ["⏳ Pending", "🔄 On Process", "✅ Complete"])
                 
-                new_action = st.text_area("🔧 แนวทางการแก้ไข (Corrective Action)")
+                new_action = st.text_area("🔧 แนวทางการจัดการแก้ไข (Corrective Action)")
                 st.markdown("---")
                 
-                img_input_col1, img_input_col2 = st.columns(2)
-                with img_input_col1:
-                    uploaded_before = st.file_uploader("📸 เลือกรูปภาพก่อนแก้ไข (Before)", type=["png", "jpg", "jpeg"])
-                with img_input_col2:
-                    uploaded_after = st.file_uploader("✅ เลือกรูปภาพหลังแก้ไข (After)", type=["png", "jpg", "jpeg"])
+                # ช่องกดคลิกเพื่อเลือกไฟล์ภาพจากคอมพิวเตอร์หรือโทรศัพท์มือถือ
+                img_col1, img_col2 = st.columns(2)
+                with img_col1:
+                    uploaded_before = st.file_uploader("📸 เลือกอัปโหลดรูปภาพ (Before)*", type=["png", "jpg", "jpeg"])
+                with img_col2:
+                    uploaded_after = st.file_uploader("✅ เลือกอัปโหลดรูปภาพ (After)", type=["png", "jpg", "jpeg"])
                 
-                submit_btn = st.form_submit_button("💾 กดบันทึกส่งข้อมูลเข้า Google Sheet")
+                submit_btn = st.form_submit_button("💾 บันทึกและส่งข้อมูลเข้า Google Sheet")
                 
                 if submit_btn:
-                    if not new_topic or not new_owner:
-                        st.error("❌ ไม่สามารถบันทึกได้: กรุณากรอกหัวข้อประเด็นและผู้รับผิดชอบให้ครบถ้วน")
+                    if API_URL == "ใส่_URL_WEB_APP_ของกูเกิ้ลสคริปต์ตรงนี้":
+                        st.error("❌ บันทึกไม่สำเร็จ: กรุณานำ URL Web App จาก Google Apps Script มาวางใส่ในโค้ดไลน์ที่ 185 ก่อนครับ")
+                    elif not new_topic or not new_owner:
+                        st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบงานให้ครบถ้วน")
                     else:
-                        base64_before = convert_image_to_base64(uploaded_before)
-                        base64_after = convert_image_to_base64(uploaded_after)
-                        
-                        st.success("🎉 ระบบแปลงรูปภาพเป็น Base64 และเตรียมนำเข้า Google Sheet สำเร็จ!")
-                        st.balloons()
+                        with st.spinner("กำลังแปลงรหัสรูปภาพและบันทึกข้อมูลลงสเปรดชีต..."):
+                            # ทำการแปลงไฟล์ภาพดิบให้กลายเป็น Base64 String
+                            base64_before = convert_image_to_base64(uploaded_before)
+                            base64_after = convert_image_to_base64(uploaded_after)
+                            
+                            # มัดข้อมูลรวมกันเป็นชุดเพื่อเตรียมยิงข้ามแพลตฟอร์ม
+                            payload = {
+                                "date": str(new_date),
+                                "topic": new_topic,
+                                "location": new_location,
+                                "owner": new_owner,
+                                "status": new_status,
+                                "action": new_action,
+                                "pic_before": base64_before,
+                                "pic_after": base64_after
+                            }
+                            
+                            # ยิงข้อมูลไปที่หน้าต่าง API ของ Google Sheet
+                            try:
+                                response = requests.post(API_URL, json=payload)
+                                if response.status_code == 200:
+                                    st.success("🎉 บันทึกข้อมูลและรูปภาพ Base64 ลง Google Sheet สำเร็จแล้วเรียบร้อย!")
+                                    st.balloons()
+                                    st.cache_data.clear() # ล้าง Cache เพื่อให้ดึงข้อมูลแถวใหม่มาอัปเดตบนปฏิทินทันที
+                                else:
+                                    st.error(f"❌ เซฟข้อมูลล้มเหลว ฝั่งกูเกิ้ลตอบกลับรหัสข้อผิดพลาด: {response.status_code}")
+                            except Exception as req_err:
+                                st.error(f"❌ ระบบไม่สามารถส่งข้อมูลไปที่ Google Sheet ได้: {req_err}")
             st.markdown('</div>', unsafe_allow_html=True)
 
 except Exception as e:
-    st.error(f"เกิดข้อผิดพลาดในการโหลดระบบ: {e}")
+    st.error(f"แอปพลิเคชันขัดข้องชั่วคราว: {e}")
