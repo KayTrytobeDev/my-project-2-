@@ -7,7 +7,6 @@ from utils import load_data, check_complete
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
 
-# ปรับสไตล์ UI ให้พรีเมียมและอ่านง่าย
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -38,7 +37,7 @@ try:
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         st.write("💡 *คลิกเลือกวันที่หรือแถบสีงานบนปฏิทิน เพื่อเรียกเปิดดูรายละเอียดภาพประกอบ Before & After*")
         
-        # คัดกรองตัวเลือกเมนู Dropdown แบบสะอาด ป้องกันค่าว่าง
+        # คัดกรองตัวเลือกเมนู Dropdown
         raw_owners = df_raw['Responsible Person'].dropna().astype(str).unique().tolist()
         owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if o.strip() != ''])
         
@@ -51,14 +50,14 @@ try:
         with f_col2:
             sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
-        # 🛠️ ปรับเปลี่ยนวิธีการกรองข้อมูลแยกกันโดยเด็ดขาด (แก้ไขปัญหารูปภาพที่ 3, 4, และ 5)
+        # 🛠️ แยกชุดกรองข้อมูลทีละสเต็ป (แก้ปัญหา Ambiguous Error อย่างเด็ดขาด)
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
         if sel_status != "ทั้งหมด":
             df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
 
-        # สร้าง Events สำหรับติดตั้งลงบนแผงปฏิทิน
+        # ประกอบกิจกรรมส่งให้ปฏิทิน
         calendar_events = []
         df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
         
@@ -66,7 +65,6 @@ try:
             is_done = check_complete(row.get('Status'))
             topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
             date_str = str(row['Formatted_Date'])
-            
             bg_color = "#10B981" if is_done else "#F59E0B"
             
             calendar_events.append({
@@ -85,17 +83,15 @@ try:
             "locale": "th"
         }
         
-        # แสดงปฏิทินลงหน้าอินเทอร์เฟซ
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v3')
+        # แสดงปฏิทิน
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v4')
         
-        # จับจังหวะการกดคลิกเลือกช่องปฏิทินของผู้ใช้งาน
         selected_date = None
         if cal_data.get("eventClick"): 
             selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): 
             selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
-        # แสดงผลข้อมูลเฉพาะวันที่ผู้ใช้กดเลือก
         if selected_date:
             st.success(f"📂 เปิดดูบันทึกข้อมูลประจำวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)]
@@ -134,15 +130,15 @@ try:
                                 st.info("💡 เคสนี้อยู่ในระหว่างการดำเนินงาน (ยังไม่มีภาพแนบรายงาน After)")
                         st.markdown("<br>", unsafe_allow_html=True)
             else:
-                st.warning("ไม่มีข้อมูลที่ตรงกับตัวเลือกการกรองของคุณในวันนี้")
+                st.warning("ไม่มีข้อมูลที่ตรงกับตัวเลือกการกรองในวันนี้")
         else:
-            st.info("👆 คุณสามารถกดคลิกแถบสีงาน หรือกล่องวันที่บนปฏิทินเพื่อดึงรูปภาพขึ้นมาดูได้เลยครับ")
+            st.info("👆 คุณสามารถกดคลิกแถบสีงานบนปฏิทินเพื่อเรียกดูรูปภาพรายงานได้ทันทีครับ")
 
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         
         if df_raw.empty:
-            st.info("ยังไม่มีข้อมูลพร้อมใช้สำหรับคำนวณแดชบอร์ด")
+            st.info("ไม่มีข้อมูลเพียงพอต่อการคำนวณแดชบอร์ด")
         else:
             total = len(df_raw)
             done = df_raw['Status'].apply(check_complete).sum()
@@ -171,11 +167,11 @@ try:
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ ระบบกรอกข้อมูลเพิ่มประเด็นความเสี่ยง")
-        st.write("กรอกแบบฟอร์มด้านล่างเพื่ออัปเดตแถวข้อมูลเข้าไปยังตาราง Master File โดยตรง")
+        st.write("กรอกแบบฟอร์มด้านล่างเพื่อส่งข้อมูลแถวใหม่เข้าสู่ไฟล์ Master ตรงๆ")
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("direct_sheet_form_v3", clear_on_submit=True):
+            with st.form("direct_sheet_form_v4", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ (ว/ด/ป)", datetime.date.today())
@@ -196,7 +192,7 @@ try:
                     if not new_topic or not new_owner:
                         st.error("❌ ไม่สามารถบันทึกได้: กรุณากรอกหัวข้อประเด็นและผู้รับผิดชอบให้ครบถ้วน")
                     else:
-                        st.success("🎉 บันทึกข้อมูลเรียบร้อยแล้ว! ข้อมูลจะแสดงและไฮไลท์แถบสีบนหน้าปฏิทินทันทีเมื่อกดรีเฟรช")
+                        st.success("🎉 บันทึกข้อมูลเข้าสเปรดชีตเรียบร้อยแล้ว!")
                         st.balloons()
             st.markdown('</div>', unsafe_allow_html=True)
 
