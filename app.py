@@ -37,29 +37,35 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
+        # คลีนตัวเลือกรายชื่อผู้รับผิดชอบและสถานะไม่ให้ปนค่าว่างเปล่า
         raw_owners = df_raw['Responsible Person'].dropna().unique().tolist() if 'Responsible Person' in df_raw.columns else []
-        owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan'])
+        owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o).lower() != 'test'])
         
         raw_statuses = df_raw['Status'].dropna().unique().tolist() if 'Status' in df_raw.columns else []
-        statuses = ["ทั้งหมด"] + sorted([s for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan'])
+        statuses = ["ทั้งหมด"] + sorted([str(s).strip() for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan' and str(s).lower() != 'test'])
 
         f_col1, f_col2 = st.columns(2)
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
         with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
+        # 🛠️ ปรับปรุงระบบ Filter ให้ปลอดภัยจากปัญหากรณีข้อมูล Series ขัดแย้งกัน
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด" and not df_filtered.empty:
-            df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
+            df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str).str.strip() == str(sel_owner).strip()]
         if sel_status != "ทั้งหมด" and not df_filtered.empty:
-            df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
+            df_filtered = df_filtered[df_filtered['Status'].astype(str).str.strip() == str(sel_status).strip()]
 
         calendar_events = []
-        if 'Formatted_Date' in df_filtered.columns:
-            # กรองเอาเฉพาะแถวที่มีวันที่สมบูรณ์สำหรับแสดงบนปฏิทิน
+        if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
             df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
             for idx, row in df_with_date.iterrows():
+                # ป้องกันแถว Test โผล่มาบนปฏิทิน
+                topic_val = str(row.get('Topic/risk finding', '')).strip()
+                if 'tester' in topic_val.lower() or 'test' in topic_val.lower():
+                    continue
+                    
                 group = get_status_group(row.get('Status'))
-                topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
+                topic = topic_val if topic_val != '' else "ไม่ระบุหัวข้อ"
                 date_str = str(row['Formatted_Date'])
                 
                 if group == "complete": bg_color = "#10B981"
@@ -76,7 +82,8 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_prod_v3')
+        # ปรับ Key ปฏิทินตัวใหม่เพื่อบังคับ Refresh หน้าจอให้คลีน
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_release')
         
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
@@ -120,22 +127,24 @@ try:
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if not df_raw.empty:
-            st.metric("รวมเคสทั้งหมดในระบบ", f"{len(df_raw)} รายการ")
+            # กรองแถวที่มีคำว่า Test ออกจากการคำนวณ Dashboard
+            df_dash = df_raw[~df_raw['Topic/risk finding'].astype(str).str.lower().str.contains('test|tester', na=False)]
+            st.metric("รวมเคสทั้งหมดในระบบ (ไม่นับเคสทดสอบ)", f"{len(df_dash)} รายการ")
             c1, c2 = st.columns(2)
             with c1:
-                st.plotly_chart(px.bar(df_raw, x='Responsible Person', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
+                st.plotly_chart(px.bar(df_dash, x='Responsible Person', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
             with c2:
-                st.plotly_chart(px.pie(df_raw, names='Status', title="สัดส่วนสถานะการดำเนินงาน"), use_container_width=True)
+                st.plotly_chart(px.pie(df_dash, names='Status', title="สัดส่วนสถานะการดำเนินงาน"), use_container_width=True)
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # 🔗 [จุดใส่ลิงก์ Web App]: นำลิงก์จาก Google Apps Script มาวางแทนคำว่า "วาง_URL_ตรงนี้"
+        # 🔗 อย่าลืมตรวจดูว่าตัวแปร API_URL นี้เป็นลิงก์ Web App ปัจจุบันของคุณแล้วหรือยังนะครับ
         API_URL = "https://script.google.com/macros/s/AKfycbwcuZ9obk0Vq3x4XJfrpHSrdodu4ol7L4xI2Tzbwa5pFO_KZAeaTnCgAFkELLbAmYfQFw/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v4", clear_on_submit=True):
+            with st.form("risk_form_v5", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -153,8 +162,8 @@ try:
                 with col_img2: up_after = st.file_uploader("✅ ภาพหลังแก้ไข (After)", type=["jpg","jpeg","png"])
                 
                 if st.form_submit_button("💾 ส่งข้อมูลบันทึกลงตารางหลัก"):
-                    if API_URL == "วาง_URL_ตรงนี้":
-                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 144 ก่อนใช้งานครับ")
+                    if "วาง_URL" in API_URL:
+                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 141 ก่อนใช้งานครับ")
                     elif not new_topic or not new_owner:
                         st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบ")
                     else:
