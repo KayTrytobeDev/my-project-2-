@@ -4,17 +4,26 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# ลิงก์เชื่อมโยงกับ Google Sheet หลักของคุณ
-SHEET_ID = "1c2sJ3uDxUa39ARePd-Ry7Z5p3ZhqQYgyXTr2gLYSqaU"
+# 🔗 ลิงก์ Google Sheet ใหม่ที่คุณส่งมา (เปิดใช้งานในรูปแบบ Web Publication Html)
+PUB_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vThLIQuGIL1APAMKSwxNsKmSYoSFxFdJiACw6PRJbzOAoq6SddZmp0bS7-IcYSaTMEq3_e9i2UhqfoU/pubhtml"
 
 @st.cache_data(ttl=5)
 def load_data():
-    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
-        df = pd.read_csv(url)
-        df.columns = df.columns.str.strip()  # ตัดช่องว่างที่หัวคอลัมน์ออกทั้งหมด
+        # อ่านข้อมูลจากหน้าเว็บที่แชร์สาธารณะ (ดึงตารางแรกที่พบในหน้า html)
+        tables = pd.read_html(PUB_URL, header=1)
+        if not tables:
+            st.error("ไม่พบข้อมูลตารางในลิงก์ Google Sheet ที่ระบุ")
+            return pd.DataFrame()
+            
+        df = tables[0]
         
-        # 💡 จับคู่ชื่อหัวคอลัมน์อัจฉริยะ (Keyword Mapping) เผื่อมีการแก้ไขชื่อในสเปรดชีต
+        # คลีนข้อมูลคอลัมน์และช่องว่าง
+        df.columns = df.columns.str.strip()
+        # ลบแถวหรือคอลัมน์ที่เป็นค่าว่างทั้งหมดที่อาจหลุดมาจากระบบ Html
+        df = df.dropna(how='all').loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        # 💡 ระบบจับคู่ชื่อหัวคอลัมน์อัจฉริยะ (Keyword Mapping)
         mapping = {}
         for col in df.columns:
             col_lower = str(col).lower()
@@ -37,7 +46,7 @@ def load_data():
 
         df = df.rename(columns=mapping)
         
-        # ป้องกันตารางพัง: สร้างคอลัมน์เปล่าสำรองไว้หากใน Google Sheet ลืมสร้างไว้
+        # ป้องกันตารางพัง: สร้างคอลัมน์เปล่าสำรองไว้ล่วงหน้า
         standard_cols = ['ว/ด/ป', 'Picture (before)', 'Picture (After)', 'Responsible Person', 'Status', 'Topic/risk finding', 'Location', 'Corrective Action']
         for col in standard_cols:
             if col not in df.columns:
@@ -47,11 +56,11 @@ def load_data():
         df['Formatted_Date'] = pd.to_datetime(df['ว/ด/ป'], errors='coerce').dt.date
         return df
     except Exception as e:
-        st.error(f"ไม่สามารถโหลดข้อมูลจากสเปรดชีตได้: {e}")
+        st.error(f"ไม่สามารถดึงข้อมูลจากลิงก์สเปรดชีตสาธารณะได้: {e}")
+        st.info("💡 แนะนำให้ตรวจสอบว่าได้ตั้งค่า 'เผยแพร่ไปยังเว็บ (Publish to web)' บน Google Sheet เรียบร้อยแล้วหรือยัง")
         return pd.DataFrame()
 
 def get_status_group(status_value):
-    """ฟังก์ชันคัดกรองสถานะออกเป็น 3 คลาสหลัก สำหรับกำหนดสีการแสดงผล"""
     if pd.isna(status_value):
         return "pending"
     status_str = str(status_value).strip().lower()
@@ -63,16 +72,12 @@ def get_status_group(status_value):
         return "pending"
 
 def convert_image_to_base64(uploaded_file):
-    """ฟังก์ชันแปลงไฟล์ภาพที่อัปโหลดให้เป็นข้อความ Base64 แบบย่อขนาดให้เบาลง"""
     if uploaded_file is None:
         return ""
     try:
         image = Image.open(uploaded_file)
-        # ปรับขนาดภาพลงเล็กน้อยเพื่อไม่ให้ข้อมูลใน Google Sheet ยาวเกินไป (บีบอัดเพื่อความเร็ว)
         image.thumbnail((800, 800))
-        
         buffered = BytesIO()
-        # แปลงเป็นไฟล์ JPEG เพื่อความเบาของข้อมูล
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
         image.save(buffered, format="JPEG", quality=75)
