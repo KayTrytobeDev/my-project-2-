@@ -21,6 +21,7 @@ st.markdown("""
     .badge-on-process { background-color: #DBEAFE; color: #1E40AF; }
     .badge-pending { background-color: #FEF3C7; color: #92400E; }
     .form-container { background-color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+    .metric-box { background-color: #EEF2F6; padding: 15px; border-radius: 8px; border: 1px solid #CBD5E1; text-align: center; margin-bottom: 15px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -37,7 +38,7 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
-        # คลีนตัวเลือกรายชื่อผู้รับผิดชอบและสถานะไม่ให้ปนค่าว่างเปล่า
+        # 1. ดึงข้อมูลตัวเลือกสำหรับ Filter (ล้างพวกค่าว่างและเคส Test ออก)
         raw_owners = df_raw['Responsible Person'].dropna().unique().tolist() if 'Responsible Person' in df_raw.columns else []
         owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o).lower() != 'test'])
         
@@ -46,20 +47,20 @@ try:
 
         f_col1, f_col2 = st.columns(2)
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
-        with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
+        with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน (มี 'รอดำเนินการ' และสถานะอื่น ๆ ครบถ้วน)", statuses)
 
-        # 🛠️ ปรับปรุงระบบ Filter ให้ปลอดภัยจากปัญหากรณีข้อมูล Series ขัดแย้งกัน
+        # 2. คัดกรองข้อมูลตามเงื่อนไขที่เลือกด้านบน
         df_filtered = df_raw.copy()
         if sel_owner != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str).str.strip() == str(sel_owner).strip()]
         if sel_status != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Status'].astype(str).str.strip() == str(sel_status).strip()]
 
+        # 3. จัดเตรียมชุดข้อมูลสำหรับเอาไปปักลงบนปฏิทิน
         calendar_events = []
         if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
             df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
             for idx, row in df_with_date.iterrows():
-                # ป้องกันแถว Test โผล่มาบนปฏิทิน
                 topic_val = str(row.get('Topic/risk finding', '')).strip()
                 if 'tester' in topic_val.lower() or 'test' in topic_val.lower():
                     continue
@@ -68,29 +69,63 @@ try:
                 topic = topic_val if topic_val != '' else "ไม่ระบุหัวข้อ"
                 date_str = str(row['Formatted_Date'])
                 
-                if group == "complete": bg_color = "#10B981"
-                elif group == "on_process": bg_color = "#3B82F6"
-                else: bg_color = "#F59E0B"
+                # กำหนดสีตามประเภทกลุ่มของสถานะงาน
+                if group == "complete": bg_color = "#10B981"      # สีเขียว = เรียบร้อย
+                elif group == "on_process": bg_color = "#3B82F6"  # สีฟ้า = กำลังดำเนินการ
+                else: bg_color = "#F59E0B"                        # สีส้ม = รอดำเนินการ
                 
                 calendar_events.append({
                     "title": f"📍 {topic}", "start": date_str, "end": date_str,
                     "backgroundColor": bg_color, "borderColor": bg_color, "allDay": True, "id": date_str
                 })
 
+        # 4. ตั้งค่าหน้าตาปฏิทิน
         calendar_options = {
             "headerToolbar": {"left": "today prev,next", "center": "title", "right": "dayGridMonth,listMonth"},
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        # ปรับ Key ปฏิทินตัวใหม่เพื่อบังคับ Refresh หน้าจอให้คลีน
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_release')
+        # แสดงผลปฏิทินหลักของระบบ
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v5_live')
         
+        # 5. 🛠️ ฟังก์ชันไฮไลท์คำนวณสรุปยอดรวมของเดือนที่กำลังเปิดดูอยู่แบบ Realtime
+        current_view_month = None
+        if cal_data.get("view") and cal_data["view"].get("currentStart"):
+            # ดึงวันที่เริ่มต้นของหน้าที่กำลังแสดงอยู่เพื่อเอามาสกัดหาว่าคือเดือนอะไร
+            start_date_str = cal_data["view"]["currentStart"].split("T")[0]
+            try:
+                # ขยับไปดูวันกลางเดือน (บวกไป 15 วัน) เพื่อให้ระบุชื่อเดือนตรงหน้าจอได้อย่างแม่นยำ ไม่ว่าจะเป็นแบบตารางหรือแบบ List
+                current_view_month = (pd.to_datetime(start_date_str) + datetime.timedelta(days=15)).month
+            except:
+                current_view_month = datetime.date.today().month
+        else:
+            current_view_month = datetime.date.today().month
+
+        # นับจำนวนเคสเฉพาะในเดือนที่กำลังเปิดอยู่จากข้อมูลที่กรองแล้ว
+        if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
+            df_filtered['Month_Num'] = pd.to_datetime(df_filtered['Formatted_Date']).dt.month
+            monthly_count = len(df_filtered[df_filtered['Month_Num'] == current_view_month])
+        else:
+            monthly_count = 0
+
+        # แสดงกล่องสรุปจำนวนตัวเลขยอดรวมที่ด้านบนของตารางรายวัน
+        months_th = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+        view_month_name = months_th[current_view_month] if current_view_month < len(months_th) else ""
+        
+        st.markdown(f"""
+            <div class="metric-box">
+                <span style="font-size: 16px; color: #475569; font-weight: bold;">📊 ข้อมูลสรุปของเดือน {view_month_name}</span><br>
+                <span style="font-size: 28px; color: #1E3A8A; font-weight: 900;">{monthly_count} รายการ</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # 6. ส่วนตรวจสอบการดึงรายละเอียดเคสเมื่อผู้ใช้กดคลิกเลือกที่วันนั้นๆ บนปฏิทิน
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
         if selected_date:
-            st.success(f"📂 กำลังแสดงข้อมูลประจำวันที่: **{selected_date}**")
+            st.success(f"📂 กำลังแสดงข้อมูลประเด็นงานของวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)] if 'Formatted_Date' in df_filtered.columns else pd.DataFrame()
             
             if not df_display.empty:
@@ -127,7 +162,6 @@ try:
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if not df_raw.empty:
-            # กรองแถวที่มีคำว่า Test ออกจากการคำนวณ Dashboard
             df_dash = df_raw[~df_raw['Topic/risk finding'].astype(str).str.lower().str.contains('test|tester', na=False)]
             st.metric("รวมเคสทั้งหมดในระบบ (ไม่นับเคสทดสอบ)", f"{len(df_dash)} รายการ")
             c1, c2 = st.columns(2)
@@ -139,12 +173,12 @@ try:
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # 🔗 อย่าลืมตรวจดูว่าตัวแปร API_URL นี้เป็นลิงก์ Web App ปัจจุบันของคุณแล้วหรือยังนะครับ
-        API_URL = "https://script.google.com/macros/s/AKfycbwcuZ9obk0Vq3x4XJfrpHSrdodu4ol7L4xI2Tzbwa5pFO_KZAeaTnCgAFkELLbAmYfQFw/exec"
+        # ลิงก์ API เชื่อมหลังบ้านอัตโนมัติของคุณ
+        API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v5", clear_on_submit=True):
+            with st.form("risk_form_v6", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -163,7 +197,7 @@ try:
                 
                 if st.form_submit_button("💾 ส่งข้อมูลบันทึกลงตารางหลัก"):
                     if "วาง_URL" in API_URL:
-                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 141 ก่อนใช้งานครับ")
+                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 164 ก่อนใช้งานครับ")
                     elif not new_topic or not new_owner:
                         st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบ")
                     else:
