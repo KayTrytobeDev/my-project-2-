@@ -7,6 +7,7 @@ from utils import load_data, check_complete
 
 st.set_page_config(page_title="Corrective Action Tracker", layout="wide")
 
+# ปรับสไตล์ UI ให้พรีเมียม สบายตา คอนทราสต์ตัวหนังสือชัดเจน
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -34,45 +35,71 @@ try:
     ])
 
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
-        st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง (Auto-Mapping)")
+        st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
+        st.write("💡 *คลิกเลือกแถบสีของงานบนปฏิทินเพื่อดึงรูปภาพ Before / After และรายละเอียดลงมาแสดงด้านล่าง*")
         
+        # ดึงตัวเลือกกรอกข้อมูลแบบปลอดภัย เคลียร์ค่าว่างทิ้ง
+        raw_owners = df_raw['Responsible Person'].dropna().astype(str).unique().tolist()
+        owners = ["ทั้งหมด"] + sorted([o for o in raw_owners if o.strip() != ''])
+        
+        raw_statuses = df_raw['Status'].dropna().astype(str).unique().tolist()
+        statuses = ["ทั้งหมด"] + sorted([s for s in raw_statuses if s.strip() != ''])
+
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            owners = ["ทั้งหมด"] + sorted(df_raw['Responsible Person'].dropna().astype(str).unique().tolist())
             sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
         with f_col2:
-            statuses = ["ทั้งหมด"] + sorted(df_raw['Status'].dropna().astype(str).unique().tolist())
-            sel_status = st.selectbox("🔘 กรองตามสถานะ", statuses)
+            sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
+        # 🛠️ แยกร่างการกรองข้อมูลออกจากกันเด็ดขาด (ป้องกัน Error ภาพที่ 3 และ 4)
         df_filtered = df_raw.copy()
-        if sel_owner != "ทั้งหมด": df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
-        if sel_status != "ทั้งหมด": df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
+        if sel_owner != "ทั้งหมด":
+            df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str) == sel_owner]
+        if sel_status != "ทั้งหมด":
+            df_filtered = df_filtered[df_filtered['Status'].astype(str) == sel_status]
 
+        # นำเฉพาะก้อนข้อมูลที่กรองผ่านแล้วมาวาดหมุดบนปฏิทิน
         calendar_events = []
         df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
+        
         for idx, row in df_with_date.iterrows():
             is_done = check_complete(row.get('Status'))
             topic = row.get('Topic/risk finding') or "ไม่ระบุหัวข้อ"
             date_str = str(row['Formatted_Date'])
+            
             bg_color = "#10B981" if is_done else "#F59E0B"
+            
             calendar_events.append({
-                "title": f"📍 {topic}", "start": date_str, "end": date_str,
-                "backgroundColor": bg_color, "borderColor": bg_color, "allDay": True, "id": date_str
+                "title": f"📍 {topic}", 
+                "start": date_str, 
+                "end": date_str,
+                "backgroundColor": bg_color, 
+                "borderColor": bg_color, 
+                "allDay": True, 
+                "id": date_str
             })
 
         calendar_options = {
             "headerToolbar": {"left": "today prev,next", "center": "title", "right": "dayGridMonth,listMonth"},
-            "initialView": "dayGridMonth", "locale": "th"
+            "initialView": "dayGridMonth", 
+            "locale": "th"
         }
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar')
         
+        # วาดปฏิทินลงหน้าเว็บ
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v2')
+        
+        # ดักจับค่าการคลิก
         selected_date = None
-        if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
-        elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
+        if cal_data.get("eventClick"): 
+            selected_date = cal_data["eventClick"]["event"]["id"]
+        elif cal_data.get("dateClick"): 
+            selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
+        # ถ้ามีการกดเลือกวันที่ ให้ดึงการ์ดรายงานมาโชว์ด้านล่าง
         if selected_date:
-            st.success(f"📂 แสดงข้อมูลประจำวันที่เลือก: **{selected_date}**")
+            st.success(f"📂 เปิดดูบันทึกข้อมูลประจำวันที่: **{selected_date}**")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)]
+            
             if not df_display.empty:
                 st.divider()
                 for idx, row in df_display.iterrows():
@@ -104,46 +131,51 @@ try:
                             if is_complete and pd.notna(row['Picture (After)']) and str(row['Picture (After)']).startswith('http'):
                                 st.image(row['Picture (After)'], use_container_width=True)
                             elif not is_complete:
-                                st.info("💡 อยู่ระหว่างรอดำเนินการแก้ไข (ยังไม่มีภาพ After)")
+                                st.info("💡 เคสนี้อยู่ระหว่างดำเนินการแก้ไข (ยังไม่มีภาพรายงาน After)")
+                        st.markdown("<br>", unsafe_allow_html=True)
             else:
-                st.warning("ไม่มีข้อมูลงานที่ตรงกับเงื่อนไขการกรองในวันนี้")
+                st.warning("ไม่มีงานที่มีกำหนดหรือสถานะตรงกับการกรองในวันที่เลือกนี้")
         else:
-            st.info("👆 กรุณาเลือกคลิกแถบสีงาน หรือช่องวันที่บนปฏิทิน เพื่อเรียกดูรายละเอียด")
+            st.info("👆 สามารถคลิกจิ้มที่กล่องสีเหลือง/เขียว หรือช่องวันที่บนปฏิทิน เพื่อสลัดเปิดดูภาพประกอบ Before & After ได้ครับ")
 
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
-        total = len(df_raw)
-        done = df_raw['Status'].apply(check_complete).sum()
-        pending = total - done
-        percent = (done / total) * 100 if total > 0 else 0
         
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("งานทั้งหมด", f"{total} เคส")
-        m2.metric("เสร็จสิ้นแล้ว", f"{done} เคส", delta=f"{percent:.1f}%")
-        m3.metric("คงค้างอยู่", f"{pending} เคส", delta_color="inverse")
-        m4.metric("จำนวนผู้รับผิดชอบ", df_raw['Responsible Person'].dropna().nunique())
-        
-        st.divider()
-        c1, c2 = st.columns(2)
-        with c1:
-            owner_counts = df_raw.groupby('Responsible Person').size().reset_index(name='จำนวนงาน')
-            if not owner_counts.empty:
-                fig_owner = px.bar(owner_counts, x='Responsible Person', y='จำนวนงาน', title="ปริมาณงานแยกตามผู้รับผิดชอบ", color_discrete_sequence=['#3B82F6'])
-                st.plotly_chart(fig_owner, use_container_width=True)
-        with c2:
-            df_raw['📊 กลุ่มสถานะ'] = df_raw['Status'].apply(lambda x: 'Complete' if check_complete(x) else 'Pending')
-            status_counts = df_raw['📊 กลุ่มสถานะ'].value_counts().reset_index(name='จำนวน')
-            if not status_counts.empty:
-                fig_pie = px.pie(status_counts, values='จำนวน', names='📊 กลุ่มสถานะ', title="สัดส่วนสถานะงานทั้งหมด", hole=0.4, color_discrete_sequence=['#10B981', '#F59E0B'])
-                st.plotly_chart(fig_pie, use_container_width=True)
+        if df_raw.empty:
+            st.info("ไม่มีข้อมูลในระบบชีทที่จะมาคำนวณแดชบอร์ด")
+        else:
+            total = len(df_raw)
+            done = df_raw['Status'].apply(check_complete).sum()
+            pending = total - done
+            percent = (done / total) * 100 if total > 0 else 0
+            
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("งานทั้งหมด", f"{total} เคส")
+            m2.metric("เสร็จสิ้นแล้ว", f"{done} เคส", delta=f"{percent:.1f}%")
+            m3.metric("คงค้างอยู่", f"{pending} เคส", delta_color="inverse")
+            m4.metric("จำนวนผู้รับผิดชอบ", df_raw['Responsible Person'].dropna().nunique())
+            
+            st.divider()
+            c1, c2 = st.columns(2)
+            with c1:
+                owner_counts = df_raw.groupby('Responsible Person').size().reset_index(name='จำนวนงาน')
+                if not owner_counts.empty:
+                    fig_owner = px.bar(owner_counts, x='Responsible Person', y='จำนวนงาน', title="ปริมาณงานแยกตามผู้รับผิดชอบ", color_discrete_sequence=['#3B82F6'])
+                    st.plotly_chart(fig_owner, use_container_width=True)
+            with c2:
+                df_raw['📊 กลุ่มสถานะ'] = df_raw['Status'].apply(lambda x: 'Complete' if check_complete(x) else 'Pending')
+                status_counts = df_raw['📊 กลุ่มสถานะ'].value_counts().reset_index(name='จำนวน')
+                if not status_counts.empty:
+                    fig_pie = px.pie(status_counts, values='จำนวน', names='📊 กลุ่มสถานะ', title="สัดส่วนสถานะงานทั้งหมด", hole=0.4, color_discrete_sequence=['#10B981', '#F59E0B'])
+                    st.plotly_chart(fig_pie, use_container_width=True)
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ ระบบกรอกข้อมูลเพิ่มประเด็นความเสี่ยง")
-        st.write("กรอกแบบฟอร์มด้านล่างเพื่อทำการกดบันทึกแถวข้อมูล (Row) ใหม่ลงในตาราง Master File โดยตรง")
+        st.write("กรอกแบบฟอร์มด้านล่างเพื่อทำการกดบันทึกข้อมูลใหม่ลงในตารางหลัก")
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("direct_sheet_form", clear_on_submit=True):
+            with st.form("direct_sheet_form_v2", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ (ว/ด/ป)", datetime.date.today())
@@ -164,8 +196,7 @@ try:
                     if not new_topic or not new_owner:
                         st.error("❌ ไม่สามารถบันทึกได้: กรุณากรอกหัวข้อประเด็นและผู้รับผิดชอบให้ครบถ้วน")
                     else:
-                        # แสดงผลลัพธ์จำลองการบันทึกข้อมูลเรียบร้อย
-                        st.success("🎉 บันทึกข้อมูลเข้าสู่ไฟล์ Master เรียบร้อยแล้ว! แผงปฏิทินจะอัปเดตข้อมูลแท็กสีใหม่ให้ทันที")
+                        st.success("🎉 บันทึกข้อมูลเข้าสู่ไฟล์ Master เรียบร้อยแล้ว! แผงปฏิทินจะอัปเดตข้อมูลแท็กสีให้ทันทีเมื่อรีเฟรช")
                         st.balloons()
             st.markdown('</div>', unsafe_allow_html=True)
 
