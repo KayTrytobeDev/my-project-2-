@@ -4,14 +4,14 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# ID ของ Google Sheet หลักของคุณ
-SHEET_ID = "13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY"
+# ใช้ลิงก์ที่คุณส่งมาแปลงเป็นรูปแบบที่โค้ดดึงข้อมูลตารางดิบได้โดยตรง (Export เป็น CSV)
+PUB_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTgTjP2perBAg1RodNvk1AahEh_OFdhCMzIYxyhQu-yM_Twbg3sbheMyTCWHi1zaw/pub?output=csv"
 
 @st.cache_data(ttl=3)
 def load_data():
-    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
     try:
-        df = pd.read_csv(url)
+        # ดึงข้อมูลจากลิงก์ตัวล่าสุด
+        df = pd.read_csv(PUB_URL)
         df.columns = df.columns.str.strip()
         
         # กรองแถวว่างเปล่าออกโดยอิงจากประเด็นความเสี่ยงเป็นหลัก
@@ -22,15 +22,12 @@ def load_data():
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.strip()
 
-        # 🛠️ ระบบแปลงวันที่ปรับปรุงใหม่: รองรับคอลัมน์ "ว/ด/ป" สากลช่องเดียว
+        # ระบบแปลงวันที่จากคอลัมน์ ว/ด/ป
         def parse_custom_date(row):
             try:
-                # ลองดึงข้อมูลจากคอลัมน์ ว/ด/ป
                 date_raw = str(row.get('ว/ด/ป', row.get('Date', ''))).strip()
                 if not date_raw or date_raw.lower() == 'nan':
                     return None
-                
-                # แปลงผ่าน pandas datetime รองรับ format ว/ด/ป สากล
                 return pd.to_datetime(date_raw, errors='coerce').date()
             except:
                 return None
@@ -41,7 +38,7 @@ def load_data():
         df = df.fillna("")
         return df
     except Exception as e:
-        st.error(f"ระบบหลังบ้านไม่สามารถดึงข้อมูลสเปรดชีตได้: {e}")
+        st.error(f"ระบบหลังบ้านไม่สามารถดึงข้อมูลจากลิงก์สเปรดชีตได้: {e}")
         return pd.DataFrame()
 
 def get_status_group(status_value):
