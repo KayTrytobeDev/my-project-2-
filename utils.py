@@ -18,9 +18,30 @@ def load_data():
         # 🚨 ถ้าหน้าเว็บถูกปิดกั้น สเปรดชีตจะส่งรหัส HTML กลับมาแทนตารางข้อมูล
         if "<html" in response.text.lower() or "<meta" in response.text.lower() or "google-site-verification" in response.text:
             st.warning("⚠️ [สิทธิ์การเข้าถึงถูกปิดกั้น] โปรดตรวจสอบว่าใน Google Sheet ได้เปลี่ยนการเข้าถึงทั่วไปเป็น 'ทุกคนที่มีลิงก์' แล้วหรือยังครับ")
+            return pd.DataFrame()import streamlit as st
+import pandas as pd
+import requests
+import base64
+from io import BytesIO, StringIO
+from PIL import Image
+
+# 🔗 วางลิงก์ที่ได้จากขั้นตอน "เผยแพร่ไปยังเว็บ (.csv)" ตรงนี้ได้เลยครับคุณ Booska
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY/pub?output=csv&gid=1864070200"
+
+@st.cache_data(ttl=1)
+def load_data():
+    try:
+        # ดึงข้อความดิบผ่านโครงสร้าง HTTP Requests เพื่อตรวจสอบโครงสร้างเว็บ
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(SPREADSHEET_URL, headers=headers, timeout=15)
+        response.encoding = 'utf-8'
+        
+        # 🚨 ถ้าลิงก์ไม่ได้ถูกเปิดสาธารณะอย่างถูกต้อง ระบบจะส่งหน้าล็อกอิน HTML กลับมา
+        if "<html" in response.text.lower() or "google-site-verification" in response.text:
+            st.warning("⚠️ [สิทธิ์การเข้าถึงถูกปิดกั้น] โปรดตรวจสอบวิธีแชร์สเปรดชีตด้วยเมนู 'File > Share > Publish to web > เลือก .csv' อีกครั้งนะครับ")
             return pd.DataFrame()
 
-        # อ่านข้อมูลตารางจากหน้าข้อความดิบ
+        # อ่านข้อมูลตารางดิบ
         df = pd.read_csv(
             StringIO(response.text),
             on_bad_lines='skip',
@@ -31,10 +52,10 @@ def load_data():
         if df.empty:
             return pd.DataFrame()
 
-        # ล้างช่องว่างที่หัวคอลลัมน์ทั้งหมด
+        # ล้างช่องว่างที่หัวคอลัมน์ทั้งหมด
         df.columns = df.columns.str.strip()
         
-        # ค้นหาคอลลัมน์ประเด็นความเสี่ยง
+        # ค้นหาคอลัมน์ประเด็นความเสี่ยง
         has_topic = False
         for col in df.columns:
             if any(x in str(col) for x in ['Topic', 'risk', 'ประเด็น', 'ความเสี่ยง']):
@@ -45,42 +66,21 @@ def load_data():
         if not has_topic and len(df.columns) > 1:
             df = df.rename(columns={df.columns[1]: 'Topic/risk finding'})
             
-        # คัดกรองเฉพาะแถวที่มีข้อความบันทึกความเสี่ยงจริง
-        if 'Topic/risk finding' in df.columns:
-            df = df.dropna(subset=['Topic/risk finding'])
-            df = df[df['Topic/risk finding'].astype(str).str.strip() != ""]
-            df = df[~df['Topic/risk finding'].astype(str).str.contains('nan|None|null|<meta|<html', case=False)]
-        else:
-            return pd.DataFrame()
-
-        # กำหนดชื่อคอลัมน์แรกให้เป็นวันที่
-        if len(df.columns) > 0:
-            date_col = df.columns[0]
-            if date_col != 'ว/ด/ป':
-                df = df.rename(columns={date_col: 'ว/ด/ป'})
-
-        # กำหนดชื่อคอลัมน์ผู้รับผิดชอบและสถานะงาน
-        for col in df.columns:
-            if any(x in str(col) for x in ['Responsible', 'ผู้รับผิดชอบ', 'คนตรวจ']):
-                if col != 'Responsible Person':
-                    df = df.rename(columns={col: 'Responsible Person'})
-            if any(x in str(col) for x in ['Status', 'สถานะ']):
-                if col != 'Status':
-                    df = df.rename(columns={col: 'Status'})
-
-        # ล้างช่องว่างรอบตัวอักษรของทุกเซลล์ในตาราง
+        # ล้างช่องว่างข้อความรอบตัวอักษรของทุกเซลล์เพื่อความปลอดภัย
         for col in df.columns:
             df[col] = df[col].fillna("").astype(str).str.strip()
 
-        # แปลงฟอร์แมตวันที่ (พ.ศ. เป็น ค.ศ.)
+        # 🛠️ [จุดแก้ไข] แก้บั๊กแถวด้านล่างสุดที่เป็นคำว่า "30" หรือ "May" (คัดกรองเฉพาะแถวที่เป็นวันที่จริงเท่านั้น)
         def parse_hospital_date(row):
             try:
                 date_val = str(row.get('ว/ด/ป', '')).strip()
-                if not date_val or date_val.lower() in ['nan', 'none', 'null', '']:
+                if not date_val or date_val.lower() in ['nan', 'none', 'null', '', 'may', 'june', 'total']:
                     return None
                 
                 if '/' in date_val:
                     parts = date_val.split('/')
+                    if len(parts) != 3:
+                        return None
                     p1, p2, p3 = int(parts[0]), int(parts[1]), int(parts[2])
                     
                     if p3 > 2500:
@@ -100,9 +100,30 @@ def load_data():
             except:
                 return None
 
+        # แปลงข้อมูลเป็นวันที่แบบฟอร์แมตปฏิทินสากล
+        if len(df.columns) > 0:
+            date_col = df.columns[0]
+            if date_col != 'ว/ด/ป':
+                df = df.rename(columns={date_col: 'ว/ด/ป'})
+                
         df['Formatted_Date'] = df.apply(parse_hospital_date, axis=1)
         
-        # ถอดสูตรแปลงลิงก์รูปภาพ
+        # ตัดแถวขยะใด ๆ ที่ไม่สามารถแปลงเป็นวันที่ได้ออกจากระบบปฏิทิน
+        df = df.dropna(subset=['Formatted_Date'])
+        
+        # คัดกรองเอาเฉพาะแถวที่มีการพิมพ์ข้อความบันทึกความเสี่ยงเอาไว้จริง ๆ เท่านั้น
+        if 'Topic/risk finding' in df.columns:
+            df = df[df['Topic/risk finding'] != ""]
+            df = df[~df['Topic/risk finding'].str.contains('nan|None|null|<meta', case=False)]
+
+        # แปลงชื่อคอลัมน์ผู้รับผิดชอบและสถานะงาน
+        for col in df.columns:
+            if any(x in str(col) for x in ['Responsible', 'ผู้รับผิดชอบ', 'คนตรวจ']):
+                df = df.rename(columns={col: 'Responsible Person'})
+            if any(x in str(col) for x in ['Status', 'สถานะ']):
+                df = df.rename(columns={col: 'Status'})
+
+        # ถอดสูตรแปลงลิงก์รูปภาพติดแอป
         def clean_image_formula(val):
             val_str = str(val).strip()
             if val_str.startswith('=IMAGE("') and val_str.endswith('")'):
@@ -116,16 +137,16 @@ def load_data():
 
         return df
     except Exception as e:
-        st.error(f"ระบบขัดข้อง: {e}")
+        st.error(f"ระบบตรวจพบข้อผิดพลาด: {e}")
         return pd.DataFrame()
 
 def get_status_group(status_value):
     if not status_value or str(status_value).strip() == "":
         return "pending"
     status_str = str(status_value).strip().lower()
-    if any(x in status_str for x in ["เรียบร้อย", "complete", "เสร็จสิ้น", "สำเร็จ", "✅", "done", "ดำเนินการเรียบร้อย"]):
+    if any(x in status_str for x in ["เรียบร้อย", "complete", "เสร็จสิ้น", "สำเร็จ", "✅", "done"]):
         return "complete"
-    elif any(x in status_str for x in ["on process", "onprocess", "กำลังทำ", "ดำเนิน", "กำลังดำเนินการ", "🔄"]):
+    elif any(x in status_str for x in ["on process", "onprocess", "กำลังทำ", "กำลังดำเนินการ", "🔄"]):
         return "on_process"
     else:
         return "pending"
@@ -140,7 +161,6 @@ def convert_image_to_base64(uploaded_file):
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
         image.save(buffered, format="JPEG", quality=60)
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        return f"data:image/jpeg;base64,{img_str}"
+        return f"data:image/jpeg;base64,{base64.b64encode(buffered.getvalue()).decode()}"
     except:
         return ""
