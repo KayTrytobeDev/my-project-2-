@@ -34,7 +34,15 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 try:
-    df_raw = load_data()
+    df_all = load_data()
+    
+    # 🛠️ กรองตัดแถวที่ไม่ใช่เคสจริงออกไปเพื่อให้ยอดตัวเลขสรุปเน็ต ๆ ตรงตามตารางจริง
+    if not df_all.empty and 'Topic/risk finding' in df_all.columns:
+        df_raw = df_all[~df_all['Topic/risk finding'].astype(str).str.contains('ไม่พบประเด็น|ไม่มีประเด็น', na=False)]
+        # กรองแถวที่หัวข้อว่างเปล่าออกด้วย
+        df_raw = df_raw[df_raw['Topic/risk finding'].astype(str).str.strip() != ""]
+    else:
+        df_raw = df_all.copy()
 
     st.sidebar.title("📌 เมนูควบคุม")
     menu = st.sidebar.radio("เลือกโหมดการแสดงผล", [
@@ -46,11 +54,11 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
-        # จัดการตัวเลือกการ Filter คัดกรองข้อมูล
-        raw_owners = df_raw['Responsible Person'].dropna().unique().tolist() if 'Responsible Person' in df_raw.columns else []
+        # จัดการตัวเลือกสำหรับการกรองข้อมูล (Filter)
+        raw_owners = df_raw['Responsible Person'].unique().tolist() if 'Responsible Person' in df_raw.columns else []
         owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o).lower() != 'test'])
         
-        raw_statuses = df_raw['Status'].dropna().unique().tolist() if 'Status' in df_raw.columns else []
+        raw_statuses = df_raw['Status'].unique().tolist() if 'Status' in df_raw.columns else []
         statuses = ["ทั้งหมด"] + sorted([str(s).strip() for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan' and str(s).lower() != 'test'])
 
         f_col1, f_col2 = st.columns(2)
@@ -63,16 +71,17 @@ try:
         if sel_status != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Status'].astype(str).str.strip() == str(sel_status).strip()]
 
+        # เตรียมข้อมูลสำหรับแสดงผลบนปฏิทิน
         calendar_events = []
         if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
-            df_with_date = df_filtered.dropna(subset=['Formatted_Date'])
+            df_with_date = df_filtered[df_filtered['Formatted_Date'].notna() & (df_filtered['Formatted_Date'] != "")]
             for idx, row in df_with_date.iterrows():
                 topic_val = str(row.get('Topic/risk finding', '')).strip()
-                if 'tester' in topic_val.lower() or 'test' in topic_val.lower():
+                if 'tester' in topic_val.lower() or 'test' in topic_val.lower() or topic_val == "":
                     continue
                     
                 group = get_status_group(row.get('Status'))
-                topic = topic_val if topic_val != '' else "ไม่ระบุหัวข้อ"
+                topic = topic_val
                 date_str = str(row['Formatted_Date'])
                 
                 if group == "complete": bg_color = "#10B981"
@@ -89,9 +98,9 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v6_final')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v7_stable')
         
-        # 📊 คำนวณสรุปยอดตัวเลขจำนวนเคสในแต่ละเดือนแบบอัตโนมัติ
+        # คำนวณสรุปยอดตัวเลขจำนวนเคสในแต่ละเดือนแบบอัตโนมัติอิงตามหน้าปฏิทินที่เปิดดู
         current_view_month = None
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
             start_date_str = cal_data["view"]["currentStart"].split("T")[0]
@@ -103,8 +112,9 @@ try:
             current_view_month = datetime.date.today().month
 
         if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
-            df_filtered['Month_Num'] = pd.to_datetime(df_filtered['Formatted_Date']).dt.month
-            monthly_count = len(df_filtered[df_filtered['Month_Num'] == current_view_month])
+            df_filtered_clean = df_filtered[df_filtered['Formatted_Date'].notna() & (df_filtered['Formatted_Date'] != "")]
+            df_filtered_clean['Month_Num'] = pd.to_datetime(df_filtered_clean['Formatted_Date']).dt.month
+            monthly_count = len(df_filtered_clean[df_filtered_clean['Month_Num'] == current_view_month])
         else:
             monthly_count = 0
 
@@ -118,7 +128,7 @@ try:
             </div>
         """, unsafe_allow_html=True)
 
-        # ตรวจจับการกดคลิกบนปฏิทินเพื่อดึงข้อมูลรายละเอียดงาน
+        # ตรวจจับการกดคลิกเพื่อกางดูรายละเอียดการ์ดของวันนั้น ๆ
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
@@ -132,21 +142,21 @@ try:
                 for idx, row in df_display.iterrows():
                     group = get_status_group(row.get('Status'))
                     card_style = "card card-complete" if group == "complete" else ("card card-on-process" if group == "on_process" else "card card-pending")
-                    badge_html = f'<span class="status-badge badge-{group}">{row.get("Status", "Pending")}</span>'
+                    badge_html = f'<span class="status-badge badge-{group}">{row.get("Status", "รอดำเนินการ")}</span>'
                     
-                    # 🛡️ ระบบตรวจหาและดึงคอลัมน์ "ระดับความเสี่ยง (Risk Level)" มาแมปปิ้งสีแสดงผล
-                    r_level = str(row.get('Risk Level', row.get('RiskLvl', row.get('Risk', 'ไม่มีข้อมูล')))).strip()
+                    # ตรวจสอบและแสดงป้ายระดับความเสี่ยง Risk Level
+                    r_level = str(row.get('Risk Level', row.get('RiskLvl', row.get('Risk', 'Low')))).strip()
                     if 'low' in r_level.lower() or 'ต่ำ' in r_level: risk_class = "risk-badge risk-low"
                     elif 'med' in r_level.lower() or 'กลาง' in r_level: risk_class = "risk-badge risk-medium"
                     elif 'high' in r_level.lower() or 'สูง' in r_level: risk_class = "risk-badge risk-high"
-                    else: risk_class = "risk-badge risk-unknown"
+                    else: risk_class = "risk-badge risk-low"
                     
                     st.markdown(f"""
                         <div class="{card_style}">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <h3 style="margin:0; color:#1E3A8A;">
                                     📍 {row.get('Topic/risk finding','N/A')}
-                                    <span class="{risk_class}">⚠️ ระดับความเสี่ยง: {r_level}</span>
+                                    <span class="{risk_class}">⚠️ ระดับความเสี่ยง: {r_level if r_level != "" else "Low"}</span>
                                 </h3>
                                 {badge_html}
                             </div>
@@ -155,6 +165,7 @@ try:
                         </div>
                     """, unsafe_allow_html=True)
                     
+                    # ส่วนการแสดงผลรูปภาพ Before และ After
                     img_col1, img_col2 = st.columns(2)
                     with img_col1:
                         pic_b = str(row.get('Picture (before)', '')).strip().replace(" ", "")
@@ -171,8 +182,11 @@ try:
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if not df_raw.empty:
-            df_dash = df_raw[~df_raw['Topic/risk finding'].astype(str).str.lower().str.contains('test|tester', na=False)]
+            df_dash = df_raw[df_raw['Topic/risk finding'] != ""]
+            df_dash = df_dash[~df_dash['Topic/risk finding'].astype(str).str.lower().str.contains('test|tester', na=False)]
+            
             st.metric("รวมเคสทั้งหมดในระบบ (ไม่นับเคสทดสอบ)", f"{len(df_dash)} รายการ")
+            
             c1, c2 = st.columns(2)
             with c1:
                 st.plotly_chart(px.bar(df_dash, x='Responsible Person', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
@@ -181,11 +195,12 @@ try:
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
+        # ลิงก์ API Web App หลังบ้านของคุณ
         API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v6_final", clear_on_submit=True):
+            with st.form("risk_form_v7_final", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -194,7 +209,6 @@ try:
                 with col2:
                     new_owner = st.text_input("👤 ผู้รับผิดชอบ (Responsible Person)*")
                     new_status = st.selectbox("🔘 สถานะงาน", ["รอดำเนินการ", "กำลังดำเนินการ", "เรียบร้อย"])
-                    # เพิ่มกล่องเลือก Risk Level ตอนบันทึกข้อมูลเพิ่มใหม่ผ่านแอปหน้าเว็บ
                     new_risk = st.selectbox("⚠️ ระดับความเสี่ยง (Risk Level)", ["Low", "Medium", "High"])
                 
                 new_action = st.text_area("🔧 แนวทางการจัดการแก้ไข (Corrective Action)")
@@ -205,20 +219,17 @@ try:
                 with col_img2: up_after = st.file_uploader("✅ ภาพหลังแก้ไข (After)", type=["jpg","jpeg","png"])
                 
                 if st.form_submit_button("💾 ส่งข้อมูลบันทึกลงตารางหลัก"):
-                    if "วาง_URL" in API_URL:
-                        st.error("❌ กรุณาตั้งค่า URL Web App ที่บรรทัด 164 ก่อนใช้งานครับ")
-                    elif not new_topic or not new_owner:
+                    if not new_topic or not new_owner:
                         st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบ")
                     else:
-                        with st.spinner("กำลังจัดฟอร์แมตข้อมูลส่งไปยัง Google Sheet..."):
+                        with st.spinner("กำลังส่งข้อมูลไปยัง Google Sheet..."):
                             payload = {
-                                "date_d": new_date.strftime("%d"),
-                                "date_m": new_date.strftime("%B"),
+                                "date_d": new_date.strftime("%m/%d/%Y"), # 🛠️ ปรับเปลี่ยนส่งเป็นรูปแบบ ว/ด/ป ช่องเดียวให้สอดคล้องกับคอลัมน์ชีทใหม่
                                 "topic": new_topic,
                                 "location": new_location,
                                 "owner": new_owner,
                                 "status": new_status,
-                                "risk_level": new_risk, # ส่งข้อมูลความเสี่ยงไปบันทึกเพิ่มด้วย
+                                "risk_level": new_risk,
                                 "action": new_action,
                                 "pic_before": convert_image_to_base64(up_before),
                                 "pic_after": convert_image_to_base64(up_after)
@@ -226,11 +237,11 @@ try:
                             try:
                                 res = requests.post(API_URL, json=payload)
                                 if res.status_code == 200:
-                                    st.success("🎉 บันทึกข้อมูลและรูปภาพลงล็อกตามคอลัมน์สเปรดชีตเรียบร้อย!")
+                                    st.success("🎉 บันทึกข้อมูลและรูปภาพลง Google Sheet เรียบร้อย!")
                                     st.balloons()
                                     st.cache_data.clear()
                                 else:
-                                    st.error(f"เกิดข้อผิดพลาดจากฝั่ง Server: {res.status_code}")
+                                    st.error(f"เกิดข้อผิดพลาดจาก Server: {res.status_code}")
                             except Exception as err:
                                 st.error(f"ไม่สามารถเชื่อมต่อไปยังหลังบ้านได้: {err}")
             st.markdown('</div>', unsafe_allow_html=True)
