@@ -5,7 +5,7 @@ from io import BytesIO
 from PIL import Image
 
 # 🔗 ลิงก์ดาวน์โหลดฐานข้อมูล CSV ที่เจาะจงไปยังแผ่นงาน "สรุปรวม (2)" ของคุณโดยตรง
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTgTjP2perBAg1RodNvk1AahEh_OFdhCMzIYxyhQu-yM_Twbg3sbheMyTCWHi1zaw/pubhtml?gid=2134980035&single=true"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUClxj5_aIOhr2GQ_vTd3IGhrR1MKJxjwp_-wAVrafYLbylhME-gfokR8BfbXiSiz_oPQldAu6J-5g/pubhtml?gid=2134980035&single=true"
 
 @st.cache_data(ttl=5)
 def load_data():
