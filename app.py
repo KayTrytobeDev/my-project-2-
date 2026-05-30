@@ -32,13 +32,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 try:
-    df_all = load_data()
-    
-    if not df_all.empty and 'Topic/risk finding' in df_all.columns:
-        df_raw = df_all[~df_all['Topic/risk finding'].astype(str).str.contains('ไม่พบประเด็น|ไม่มีประเด็น|Tester|test', na=False)]
-        df_raw = df_raw[df_raw['Topic/risk finding'].astype(str).str.strip() != ""]
-    else:
-        df_raw = df_all.copy()
+    df_raw = load_data()
 
     st.sidebar.title("📌 เมนูควบคุม")
     menu = st.sidebar.radio("เลือกโหมดการแสดงผล", [
@@ -50,24 +44,27 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
-        raw_owners = df_raw['Responsible Person'].unique().tolist() if 'Responsible Person' in df_raw.columns else []
-        owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan'])
-        
-        raw_statuses = df_raw['Status'].unique().tolist() if 'Status' in df_raw.columns else []
-        statuses = ["ทั้งหมด"] + sorted([str(s).strip() for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan'])
+        if not df_raw.empty:
+            raw_owners = df_raw['Responsible Person'].unique().tolist() if 'Responsible Person' in df_raw.columns else []
+            owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan'])
+            
+            raw_statuses = df_raw['Status'].unique().tolist() if 'Status' in df_raw.columns else []
+            statuses = ["ทั้งหมด"] + sorted([str(s).strip() for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan'])
+        else:
+            owners, statuses = ["ทั้งหมด"], ["ทั้งหมด"]
 
         f_col1, f_col2 = st.columns(2)
         with f_col1: sel_owner = st.selectbox("👤 กรองตามผู้รับผิดชอบ", owners)
         with f_col2: sel_status = st.selectbox("🔘 กรองตามสถานะงาน", statuses)
 
-        df_filtered = df_raw.copy()
+        df_filtered = df_raw.copy() if not df_raw.empty else pd.DataFrame()
         if sel_owner != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Responsible Person'].astype(str).str.strip() == str(sel_owner).strip()]
         if sel_status != "ทั้งหมด" and not df_filtered.empty:
             df_filtered = df_filtered[df_filtered['Status'].astype(str).str.strip() == str(sel_status).strip()]
 
         calendar_events = []
-        if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
+        if not df_filtered.empty and 'Formatted_Date' in df_filtered.columns:
             df_with_date = df_filtered[df_filtered['Formatted_Date'].notna() & (df_filtered['Formatted_Date'] != "")]
             for idx, row in df_with_date.iterrows():
                 topic_val = str(row.get('Topic/risk finding', '')).strip()
@@ -88,19 +85,18 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v9')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v10')
         
+        # จัดการคำนวณยอดรวมประจำเดือนของปฏิทินที่กำลังแสดงผล
         current_view_month = None
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
             start_date_str = cal_data["view"]["currentStart"].split("T")[0]
-            try:
-                current_view_month = (pd.to_datetime(start_date_str) + datetime.timedelta(days=15)).month
-            except:
-                current_view_month = datetime.date.today().month
+            try: current_view_month = (pd.to_datetime(start_date_str) + datetime.timedelta(days=15)).month
+            except: current_view_month = datetime.date.today().month
         else:
             current_view_month = datetime.date.today().month
 
-        if 'Formatted_Date' in df_filtered.columns and not df_filtered.empty:
+        if not df_filtered.empty and 'Formatted_Date' in df_filtered.columns:
             df_filtered_clean = df_filtered[df_filtered['Formatted_Date'].notna() & (df_filtered['Formatted_Date'] != "")]
             df_filtered_clean['Month_Num'] = pd.to_datetime(df_filtered_clean['Formatted_Date']).dt.month
             monthly_count = len(df_filtered_clean[df_filtered_clean['Month_Num'] == current_view_month])
@@ -130,7 +126,7 @@ try:
                     card_style = "card card-complete" if group == "complete" else ("card card-on-process" if group == "on_process" else "card card-pending")
                     badge_html = f'<span class="status-badge badge-{group}">{row.get("Status", "รอดำเนินการ")}</span>'
                     
-                    r_level = str(row.get('Risk Level', row.get('Risk', 'Low'))).strip()
+                    r_level = str(row.get('Risk Level', row.get('Risk Lvl', row.get('Risk', 'Low')))).strip()
                     if 'low' in r_level.lower() or 'ต่ำ' in r_level: risk_class = "risk-badge risk-low"
                     elif 'med' in r_level.lower() or 'กลาง' in r_level: risk_class = "risk-badge risk-medium"
                     elif 'high' in r_level.lower() or 'สูง' in r_level: risk_class = "risk-badge risk-high"
@@ -166,9 +162,11 @@ try:
     elif menu == "📊 สรุปภาพรวม (Dashboard)":
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if not df_raw.empty:
-            df_dash = df_raw[df_raw['Topic/risk finding'] != ""]
+            df_dash = df_raw[df_raw['Topic/risk finding'] != ""].copy()
+            # คลีนข้อมูลสถานะงานที่เป็นค่าว่างออกเพื่อความสวยงามของกราฟวงกลม
+            df_dash['Status'] = df_dash['Status'].replace("", "ไม่ระบุสถานะ")
             
-            st.metric("รวมเคสทั้งหมดในระบบ (ไม่นับเคสทดสอบ)", f"{len(df_dash)} รายการ")
+            st.metric("รวมเคสทั้งหมดในระบบ", f"{len(df_dash)} รายการ")
             
             c1, c2 = st.columns(2)
             with c1:
@@ -178,13 +176,11 @@ try:
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
-        
-        # อย่าลืมใส่ URL Google Apps Script ตัว Deployment ล่าสุดที่อัพเดตของคุณตรงนี้ครับ
         API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v9_submit", clear_on_submit=True):
+            with st.form("risk_form_v10_submit", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -192,7 +188,7 @@ try:
                     new_location = st.text_input("🏢 สถานที่ (Location)")
                 with col2:
                     new_owner = st.text_input("👤 ผู้รับผิดชอบ (Responsible Person)*")
-                    new_status = st.selectbox("🔘 สถานะงาน", ["รอดำเนินการ", "กำลังดำเนินการ", "เรียบร้อย"])
+                    new_status = st.selectbox("🔘 สถานะงาน", ["รอดำเนินการ", "กำลังดำเนินการ", "ดำเนินการเรียบร้อย"])
                     new_risk = st.selectbox("⚠️ ระดับความเสี่ยง (Risk Level)", ["Low", "Medium", "High"])
                 
                 new_action = st.text_area("🔧 แนวทางการจัดการแก้ไข (Corrective Action)")
