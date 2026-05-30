@@ -2,38 +2,23 @@ import streamlit as st
 import pandas as pd
 import requests
 from io import StringIO
-import re
 
-# 🔗 ใส่ลิงก์แชร์ปกติที่คุณ Booska ส่งมาได้เลยครับ (ระบบจะแปลงท้ายลิงก์ให้เองอัตโนมัติ)
-ORIGINAL_URL = "https://docs.google.com/spreadsheets/d/1O1Titxr4J97TlRP3BV50rfvtRXsvGHTSHu79JvftP_k/edit?usp=sharing"
-
-def get_clean_export_url(url):
-    """
-    ฟังก์ชันวิเคราะห์และเปลี่ยนรูปประโยคลิงก์ Google Sheet 
-    ให้กลายเป็นลิงก์ดึงข้อมูลตารางดิบ (Direct CSV Export) ป้องกันระบบส่งหน้าเว็บ HTML กลับมา
-    """
-    match = re.search(r"spreadsheets/d/([a-zA-O0-9-_]+)", url)
-    if match:
-        sheet_id = match.group(1)
-        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0"
-    return url
+# 🔗 ลิงก์ตรงเข้า Google Sheet ใบใหม่ของคุณ Booska
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1O1Titxr4J97TlRP3BV50rfvtRXsvGHTSHu79JvftP_k/export?format=csv&gid=0"
 
 @st.cache_data(ttl=1)
 def load_data():
     try:
-        # แปลงร่างลิงก์ให้ถูกต้องตามโครงสร้างหลังบ้าน
-        target_url = get_clean_export_url(ORIGINAL_URL)
-        
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(target_url, headers=headers, timeout=15)
+        response = requests.get(SPREADSHEET_URL, headers=headers, timeout=15)
         response.encoding = 'utf-8'
         
-        # ตรวจสอบสิทธิ์และโครงสร้างของไฟล์ที่ส่งกลับมา
+        # ตรวจสอบสิทธิ์การเข้าถึง
         if "<html" in response.text.lower() or "google-site-verification" in response.text:
-            st.error("⚠️ [ตรวจสอบฝั่ง Google Sheet] ข้อมูลที่ได้ยังคงเป็นหน้าเว็บ HTML โปรดตรวจสอบว่าที่หน้าชีต ได้กดแชร์เป็น 'ทุกคนที่มีลิงก์ (Anyone with the link)' และเลือกสิทธิ์เป็น 'ผู้มีสิทธิ์อ่าน (Viewer)' แล้วจริง ๆ หรือยังนะครับ")
+            st.error("⚠️ [สิทธิ์ถูกปิดกั้น] โปรดตรวจสอบว่าใน Google Sheet ได้กดปุ่ม 'แชร์' ขวาบน และเปลี่ยนเป็น 'ทุกคนที่มีลิงก์ (Anyone with the link)' เรียบร้อยแล้วครับ")
             return pd.DataFrame()
 
-        # อ่านตารางข้อมูล
+        # อ่านตารางข้อมูลดิบ
         df = pd.read_csv(StringIO(response.text), on_bad_lines='skip', engine='python', dtype=str)
         if df.empty:
             return pd.DataFrame()
@@ -41,7 +26,7 @@ def load_data():
         # ล้างช่องว่างหัวคอลัมน์
         df.columns = df.columns.str.strip()
         
-        # จับคู่คอลัมน์สำคัญให้พุ่งเข้าหาหน้าปฏิทินให้ถูกทิศทาง
+        # ค้นหาและจับคู่ชื่อคอลัมน์ให้อัตโนมัติ
         rename_map = {}
         for col in df.columns:
             if any(x in str(col) for x in ['ว/ด/ป', 'Date', 'วันที่']):
@@ -55,33 +40,47 @@ def load_data():
         
         df = df.rename(columns=rename_map)
 
-        # ล้างช่องว่างในทุกเซลล์
+        # ล้างช่องว่างในเซลล์ข้อมูลทั้งหมด
         for col in df.columns:
             df[col] = df[col].fillna("").astype(str).str.strip()
 
-        # ถอดและแกะรูปแบบวันที่ของระบบโรงพยาบาล
-        def parse_date(row):
+        # 🛠️ [จุดแก้ไขตายตัว] ฟังก์ชันแกะฟอร์แมตวันที่แบบอัจฉริยะ (รองรับ . / - และปี พ.ศ./ค.ศ.)
+        def parse_flexible_date(row):
             date_val = str(row.get('ว/ด/ป', '')).strip()
-            if not date_val or any(x in date_val.lower() for x in ['nan', 'null', 'total', 'summary', 'may', 'june', 'สรุป']):
+            if not date_val or any(x in date_val.lower() for x in ['nan', 'null', 'total', 'summary', 'สรุป', 'may', 'june']):
                 return None
+            
+            # เปลี่ยนเครื่องหมายจุด (.) หรือแดช (-) ให้กลายเป็นสแลช (/) เพื่อความเป็นสากล
+            date_val = date_val.replace('.', '/').replace('-', '/')
+            
             try:
                 if '/' in date_val:
                     parts = date_val.split('/')
                     if len(parts) == 3:
-                        d, m, y = int(parts[0]), int(parts[1]), int(parts[2])
-                        if y > 2500: y -= 543
-                        elif y < 100: y += 2000
+                        # กรณีฟอร์แมต ปี/เดือน/วัน (เช่น 2026/05/28)
+                        if len(parts[0]) == 4:
+                            y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
+                        else:
+                            # กรณีฟอร์แมต วัน/เดือน/ปี หรือ เดือน/วัน/ปี
+                            d, m, y = int(parts[0]), int(parts[1]), int(parts[2])
+                        
+                        if y > 2500: 
+                            y -= 543  # แปลง พ.ศ. เป็น ค.ศ.
+                        elif y < 100: 
+                            y += 2000
+                            
                         try:
                             return pd.Timestamp(year=y, month=m, day=d).date()
                         except:
                             return pd.Timestamp(year=y, month=d, day=m).date()
+                            
                 return pd.to_datetime(date_val).date()
             except:
                 return None
 
-        df['Formatted_Date'] = df.apply(parse_date, axis=1)
+        df['Formatted_Date'] = df.apply(parse_flexible_date, axis=1)
         
-        # คัดกรองเอาเฉพาะแถวข้อมูลที่มีเนื้อหาวันที่จริง ๆ เพื่อป้องกันระบบปฏิทินรวน
+        # ตัดแถวขยะออกเพื่อให้ระบบไม่ค้าง
         df = df.dropna(subset=['Formatted_Date'])
         if 'Topic/risk finding' in df.columns:
             df = df[df['Topic/risk finding'] != ""]
