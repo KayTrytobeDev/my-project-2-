@@ -4,38 +4,34 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# 🔗 ลิงก์สเปรดชีตแผ่นงานของคุณ
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY/gviz/tq?tqx=out:csv&gid=1864070200"
+# 🔗 ลิงก์ฐานข้อมูลจากแผ่นงาน "สรุปรวม (2)" ของคุณ Booska
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CN0i5qlvgAo5w1QG0sHBl1Z4WyB8Hl9VZSK0HnqqU4c/edit?usp=sharing"
 
 @st.cache_data(ttl=2)
 def load_data():
     try:
-        # 🛠️ เพิ่ม on_bad_lines='skip' เพื่อข้ามแถวที่พิมพ์ข้อความยาวเกินไป ไม่ให้ระบบพัง
+        # ดึงข้อมูลโดยข้ามแถวที่พิมพ์ข้อความยาวเกินไป เพื่อไม่ให้ระบบล่ม (on_bad_lines='skip')
         df = pd.read_csv(SPREADSHEET_URL, on_bad_lines='skip', engine='python')
         df.columns = df.columns.str.strip()
         
-        # ค้นหาคอลัมน์ประเด็นความเสี่ยง
-        target_col = None
+        # ล้างช่องว่างของชื่อคอล็มน์และเปลี่ยนชื่อคอลัมน์ประเด็นความเสี่ยงให้เป็นสากล
         for col in df.columns:
             if 'Topic/risk finding' in col or 'ประเด็นความเสี่ยง' in col:
-                target_col = col
                 if col != 'Topic/risk finding':
                     df = df.rename(columns={col: 'Topic/risk finding'})
                 break
                     
         if 'Topic/risk finding' in df.columns:
-            # กรองแถวที่ไม่มีข้อมูลประเด็นความเสี่ยงออก
             df = df.dropna(subset=['Topic/risk finding'])
             df = df[df['Topic/risk finding'].astype(str).str.strip() != ""]
         else:
             return pd.DataFrame()
 
-        # เคลียร์ช่องว่าง
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.strip()
 
-        # 🧠 เพิ่มฟังก์ชันการแกะวันที่ขั้นสูง รองรับทั้งพิมพ์ พ.ศ. / ค.ศ. หรือข้อความหลุดมา
+        # ฟังก์ชันแกะฟอร์แมตวันที่อัจฉริยะ (รองรับระบบ ว/ด/ป ปีพ.ศ. และ ปีค.ศ.)
         def parse_hospital_date(row):
             try:
                 date_col = 'ว/ด/ป' if 'ว/ด/ป' in df.columns else ('Date' if 'Date' in df.columns else df.columns[0])
@@ -44,34 +40,32 @@ def load_data():
                 if not date_val or date_val.lower() == 'nan' or date_val == "":
                     return None
                 
-                # รองรับฟอร์แมตที่มีเครื่องหมาย / เช่น 5/19/2569 หรือ 19/05/2026
                 if '/' in date_val:
                     parts = date_val.split('/')
                     p1, p2, p3 = int(parts[0]), int(parts[1]), int(parts[2])
                     
-                    # ตรวจสอบปี พ.ศ. -> แปลงเป็น ค.ศ.
+                    # ถ้าปีเป็น พ.ศ. เกิน 2500 ให้แปลงกลับเป็น ค.ศ. สำหรับระบบปฏิทิน Python
                     if p3 > 2500:
                         p3 = p3 - 543
-                    elif p3 < 100:  # กรณีพิมพ์ปีสั้น เช่น /26
+                    elif p3 < 100:
                         p3 = p3 + 2000
                         
-                    # ตรวจสอบว่าระบบเขียนแบบ เดือน/วัน/ปี หรือ วัน/เดือน/ปี
-                    if p1 > 12:  # แปลว่า p1 เป็น "วัน" ชัวร์ๆ (เช่น 19/5/2569)
+                    # เช็กว่าเขียนแบบ วัน/เดือน/ปี หรือ เดือน/วัน/ปี
+                    if p1 > 12:  # ชัวร์ว่าเป็นวันที่แน่นอน เช่น 19/5/2569
                         return pd.Timestamp(year=p3, month=p2, day=p1).date()
-                    else:  # กรณีเป็น เดือน/วัน/ปี (เช่น 5/19/2569)
+                    else:  # กรณีเป็น เดือน/วัน/ปี หรือ วัน/เดือน/ปี ที่ไม่เกินเลข 12
                         try:
                             return pd.Timestamp(year=p3, month=p1, day=p2).date()
                         except:
                             return pd.Timestamp(year=p3, month=p2, day=p1).date()
                 
-                # ลองแปลงแบบอัตโนมัติถ้าหลุดฟอร์แมตอื่นมา
                 return pd.to_datetime(date_val).date()
             except:
                 return None
 
         df['Formatted_Date'] = df.apply(parse_hospital_date, axis=1)
         
-        # ล้างสูตร IMAGE ออกเพื่อให้ได้ URL รูปภาพแท้ๆ
+        # แกะ URL รูปภาพออกจากสูตร =IMAGE("...") เพื่อนำมาพรีวิวใน Streamlit
         def clean_image_formula(val):
             val_str = str(val).strip()
             if val_str.startswith('=IMAGE("') and val_str.endswith('")'):
