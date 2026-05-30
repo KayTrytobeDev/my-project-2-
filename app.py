@@ -21,12 +21,13 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
+        # จัดการรายชื่อผู้รับผิดชอบและสถานะให้สะอาด ไม่มีค่าว่างหลุดมาให้กดเลือก
         if not df_raw.empty:
             raw_owners = df_raw['Responsible Person'].unique().tolist() if 'Responsible Person' in df_raw.columns else []
-            owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan'])
+            owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o) != '0.0'])
             
             raw_statuses = df_raw['Status'].unique().tolist() if 'Status' in df_raw.columns else []
-            statuses = ["ทั้งหมด"] + sorted([str(s).strip() for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan'])
+            statuses = ["ทั้งหมด"] + sorted([str(s).strip() for s in raw_statuses if str(s).strip() != '' and str(s).lower() != 'nan' and str(s) != '0.0'])
         else:
             owners, statuses = ["ทั้งหมด"], ["ทั้งหมด"]
 
@@ -42,7 +43,7 @@ try:
 
         calendar_events = []
         if not df_filtered.empty and 'Formatted_Date' in df_filtered.columns:
-            df_with_date = df_filtered[df_filtered['Formatted_Date'].notna() & (df_filtered['Formatted_Date'] != "")]
+            df_with_date = df_filtered[df_filtered['Formatted_Date'].notna()]
             for idx, row in df_with_date.iterrows():
                 topic_val = str(row.get('Topic/risk finding', '')).strip()
                 group = get_status_group(row.get('Status'))
@@ -62,7 +63,7 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_v2')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_v3')
         
         current_view_month = datetime.date.today().month
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
@@ -71,7 +72,7 @@ try:
             except: pass
 
         if not df_filtered.empty and 'Formatted_Date' in df_filtered.columns:
-            df_filtered_clean = df_filtered[df_filtered['Formatted_Date'].notna() & (df_filtered['Formatted_Date'] != "")]
+            df_filtered_clean = df_filtered[df_filtered['Formatted_Date'].notna()]
             if not df_filtered_clean.empty:
                 df_filtered_clean['Month_Num'] = pd.to_datetime(df_filtered_clean['Formatted_Date']).dt.month
                 monthly_count = len(df_filtered_clean[df_filtered_clean['Month_Num'] == current_view_month])
@@ -90,12 +91,11 @@ try:
             
             if not df_display.empty:
                 for idx, row in df_display.iterrows():
-                    # ใช้ Streamlit Container ในการจัดกรอบงานแทนเพื่อป้องกันบั๊กเว้นวรรค
                     with st.container(border=True):
                         st.subheader(f"📍 {row.get('Topic/risk finding','N/A')}")
                         col_info1, col_info2, col_info3 = st.columns(3)
                         with col_info1: st.write(f"🏢 **สถานที่:** {row.get('Location','N/A')}")
-                        with col_info2: st.write(f"_👤 ผู้รับผิดชอบ:_ {row.get('Responsible Person','N/A')}")
+                        with col_info2: st.write(f"👤 **ผู้รับผิดชอบ:** {row.get('Responsible Person','N/A')}")
                         with col_info3: st.write(f"🔘 **สถานะ:** {row.get('Status','ไม่ระบุ')}")
                         
                         st.info(f"🔧 **แนวทางแก้ไข:** {row.get('Corrective Action','ไม่มีข้อมูล')}")
@@ -128,7 +128,7 @@ try:
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # ⚠️ อย่าลืมแก้ลิงก์ API_URL ตรงนี้ให้เป็นลิงก์ Web App จริงของคุณที่ Deploy มาจาก Google Sheet นะครับ!
+        # 🔗 ยืนยันใช้งานด้วย URL เว็บแอปพลิเคชันจริงของโครงการคุณ Booska
         API_URL = "https://script.google.com/macros/s/AKfycbygCY04RIFRVrGnpLNfMi2S21C3wlzLepO705AqCgT7M1ayzKW-nnFSJ4_R_vqIQV0W/exec"
         
         with st.form("risk_form_v12_submit", clear_on_submit=True):
