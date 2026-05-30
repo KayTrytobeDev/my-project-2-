@@ -1,9 +1,9 @@
-# คัดลอกเฉพาะพาร์ทเมนูบันทึกข้อมูลในไฟล์ app.py ไปอัปเดตแทนที่ตรงเมนูที่ 3 ได้เลยครับ
+# คัดลอกพาร์ทนี้ ไปวางทับเมนูที่ 3 "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก" ในไฟล์ app.py ได้เลยครับ
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # 🔗 ใส่ลิงก์เว็บแอปตัวใหม่ที่คุณทำการ Deploy ล่าสุดจากข้อ 1 ด้านบน
-        API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
+        # 🔗 ใส่ลิงก์ Web App ที่ได้จากการ Deploy ข้อที่ 3 ด้านล่างนี้ครับ
+        API_URL = "https://script.google.com/macros/s/AKfycbwQkTNEQTgJTh0uC6X9Zi2OE9iSA4MS7G7APbecE3ViwDfHvJ5P4FiRqVQklbbkXSRk/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
@@ -30,12 +30,12 @@
                         st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบ")
                     else:
                         with st.spinner("กำลังส่งข้อมูลไปยัง Google Sheet..."):
-                            # คำนวณแปลงปี ค.ศ. ให้เป็น พ.ศ. (+543) เพื่อให้ตรงกับโครงสร้างวันที่เดิมในตารางโรงพยาบาลของคุณ
+                            # รวมวันเดือนปีเป็นระบบเดียวสอดคล้องกับหัวตารางโรงพยาบาลเดิม (เดือน/วัน/ปี พ.ศ.)
                             th_year = new_date.year + 543
                             str_date_combined = f"{new_date.month}/{new_date.day}/{th_year}"
                             
                             payload = {
-                                "formatted_date": str_date_combined, // รวมวันเดือนปีไว้ส่งช่องเดียว
+                                "formatted_date": str_date_combined,
                                 "topic": new_topic,
                                 "location": new_location,
                                 "owner": new_owner,
