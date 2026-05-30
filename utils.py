@@ -6,7 +6,7 @@ from io import BytesIO, StringIO
 from PIL import Image
 
 # 🔗 ลิงก์ฐานข้อมูลแบบยืดหยุ่น (บอสใช้ฟอร์แมตดึงตารางดิบโดยตรง)
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUClxj5_aIOhr2GQ_vTd3IGhrR1MKJxjwp_-wAVrafYLbylhME-gfokR8BfbXiSiz_oPQldAu6J-5g/pubhtml?gid=2134980035&single=true"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CN0i5qlvgAo5w1QG0sHBl1Z4WyB8Hl9VZSK0HnqqU4c/edit?usp=sharing"
 
 @st.cache_data(ttl=2)
 def load_data():
