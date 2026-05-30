@@ -11,6 +11,25 @@ st.set_page_config(page_title="FMS Risk Tracker", layout="wide")
 try:
     df_raw = load_data()
 
+    # 🕵️‍♂️ กล่องตรวจสุขภาพข้อมูลหลังบ้าน (จะแสดงอยู่ด้านบนสุดของหน้าเว็บเสมอ)
+    st.markdown("### 🕵️‍♂️ กล่องตรวจสุขภาพข้อมูลหลังบ้าน (ตรวจสอบปัญหาข้อมูลไม่ขึ้น)")
+    if not df_raw.empty:
+        col_test1, col_test2 = st.columns(2)
+        with col_test1:
+            st.info(f"📋 คอลัมน์ที่ระบบอ่านได้จริง: {df_raw.columns.tolist()}")
+        with col_test2:
+            total_rows = len(df_raw)
+            parsed_dates = df_raw['Formatted_Date'].notna().sum()
+            st.success(f"📊 อ่านเคสเจอทั้งหมด: {total_rows} แถว | แปลงวันที่สำเร็จเพื่อลงปฏิทินได้: {parsed_dates} แถว")
+        
+        with st.expander("🔍 คลิกเพื่อดูตัวอย่างข้อมูลจริง 3 แถวแรกที่ระบบดึงมาได้"):
+            st.dataframe(df_raw[['ว/ด/ป', 'Topic/risk finding', 'Responsible Person', 'Status', 'Formatted_Date']].head(3))
+    else:
+        st.error("❌ ระบบดึงข้อมูลออกมาจาก Google Sheet เป็นตารางว่างเปล่า! กรุณาเช็กสิทธิ์การแชร์ลิงก์หรือหัวตารางในชีท")
+
+    st.divider()
+
+    # 📌 เมนูควบคุมฝั่งซ้ายมือ
     st.sidebar.title("📌 เมนูควบคุม")
     menu = st.sidebar.radio("เลือกโหมดการแสดงผล", [
         "📅 ปฏิทินติดตามงาน (รายวัน)", 
@@ -21,7 +40,6 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
-        # จัดการรายชื่อผู้รับผิดชอบและสถานะให้สะอาด ไม่มีค่าว่างหลุดมาให้กดเลือก
         if not df_raw.empty:
             raw_owners = df_raw['Responsible Person'].unique().tolist() if 'Responsible Person' in df_raw.columns else []
             owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o) != '0.0'])
@@ -79,14 +97,14 @@ try:
             else: monthly_count = 0
         else: monthly_count = 0
 
-        st.metric(label="📊 จำนวนเคสทั้งหมดของเดือนที่เลือก", value=f"{monthly_count} รายการ")
+        st.metric(label="📊 จำนวนเคสทั้งหมดของเดือนที่เลือกบนปฏิทิน", value=f"{monthly_count} รายการ")
 
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
         elif cal_data.get("dateClick"): selected_date = cal_data["dateClick"]["date"].split("T")[0]
             
         if selected_date:
-            st.info(f"📂 ประเด็นงานประจำวันที่: {selected_date}")
+            st.info(f"📂 ประเด็นงานประจำวันที่ตรวจพบ: {selected_date}")
             df_display = df_filtered[df_filtered['Formatted_Date'].astype(str) == str(selected_date)] if 'Formatted_Date' in df_filtered.columns else pd.DataFrame()
             
             if not df_display.empty:
@@ -128,8 +146,8 @@ try:
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # 🔗 ยืนยันใช้งานด้วย URL เว็บแอปพลิเคชันจริงของโครงการคุณ Booska
-        API_URL = "https://script.google.com/macros/s/AKfycbygCY04RIFRVrGnpLNfMi2S21C3wlzLepO705AqCgT7M1ayzKW-nnFSJ4_R_vqIQV0W/exec"
+        # 🔗 ใส่ URL เว็บแอป Google Apps Script จริงของคุณ Booska แทนลิงก์นี้ได้เลยครับ
+        API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.form("risk_form_v12_submit", clear_on_submit=True):
             col1, col2 = st.columns(2)
