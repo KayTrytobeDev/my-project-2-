@@ -4,39 +4,62 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# 🔗 ลิงก์ฐานข้อมูลจากแผ่นงาน "สรุปรวม (2)" ของคุณ Booska
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CN0i5qlvgAo5w1QG0sHBl1Z4WyB8Hl9VZSK0HnqqU4c/edit?usp=sharing"
+# 🔗 ลิงก์ฐานข้อมูลสเปรดชีตแผ่นงานของคุณ Booska
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY/gviz/tq?tqx=out:csv&gid=1864070200"
 
 @st.cache_data(ttl=2)
 def load_data():
     try:
-        # ดึงข้อมูลโดยข้ามแถวที่พิมพ์ข้อความยาวเกินไป เพื่อไม่ให้ระบบล่ม (on_bad_lines='skip')
+        # อ่านข้อมูลโดยข้ามแถวที่มีปัญหาด้วย python engine
         df = pd.read_csv(SPREADSHEET_URL, on_bad_lines='skip', engine='python')
         df.columns = df.columns.str.strip()
         
-        # ล้างช่องว่างของชื่อคอล็มน์และเปลี่ยนชื่อคอลัมน์ประเด็นความเสี่ยงให้เป็นสากล
+        if df.empty:
+            return pd.DataFrame()
+
+        # 🛠️ แผนสำรองอัจฉริยะ: ถ้าหาคอลัมน์ชื่อเฉพาะไม่เจอ ให้จับคู่ตามตำแหน่งคอลัมน์ที่ควรจะเป็นแทนเลย
+        has_topic = False
         for col in df.columns:
-            if 'Topic/risk finding' in col or 'ประเด็นความเสี่ยง' in col:
-                if col != 'Topic/risk finding':
-                    df = df.rename(columns={col: 'Topic/risk finding'})
+            if 'Topic' in col or 'risk' in col or 'ประเด็น' in col or 'ความเสี่ยง' in col:
+                df = df.rename(columns={col: 'Topic/risk finding'})
+                has_topic = True
                 break
-                    
+        
+        # ถ้าพยายามหาแล้วยังไม่เจอคำใกล้เคียง บังคับเอาคอลัมน์ที่ 2 (ดัชนี 1) เป็นชื่อหัวข้อแทน
+        if not has_topic and len(df.columns) > 1:
+            df = df.rename(columns={df.columns[1]: 'Topic/risk finding'})
+            
+        # เคลียร์ล้างแถวที่ไม่มีชื่อหัวข้อเรื่องความเสี่ยงออก
         if 'Topic/risk finding' in df.columns:
             df = df.dropna(subset=['Topic/risk finding'])
             df = df[df['Topic/risk finding'].astype(str).str.strip() != ""]
         else:
             return pd.DataFrame()
 
+        # กำหนดชื่อคอลัมน์อื่นๆ ตามตำแหน่งเพื่อป้องกันปัญหาพิมพ์ชื่อหัวตารางผิด
+        if len(df.columns) > 0:
+            date_col = df.columns[0]
+            if date_col != 'ว/ด/ป':
+                df = df.rename(columns={date_col: 'ว/ด/ป'})
+
+        # กำหนดคอลัมน์ ผู้รับผิดชอบ และ สถานะ ด้วยคำใกล้เคียง
+        for col in df.columns:
+            if 'Responsible' in col or 'ผู้รับผิดชอบ' in col or 'คนตรวจ' in col:
+                if col != 'Responsible Person':
+                    df = df.rename(columns={col: 'Responsible Person'})
+            if 'Status' in col or 'สถานะ' in col:
+                if col != 'Status':
+                    df = df.rename(columns={col: 'Status'})
+
+        # ตัดช่องว่างข้อความ
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.strip()
 
-        # ฟังก์ชันแกะฟอร์แมตวันที่อัจฉริยะ (รองรับระบบ ว/ด/ป ปีพ.ศ. และ ปีค.ศ.)
+        # ระบบแกะวันที่จากคอลัมน์แรก
         def parse_hospital_date(row):
             try:
-                date_col = 'ว/ด/ป' if 'ว/ด/ป' in df.columns else ('Date' if 'Date' in df.columns else df.columns[0])
-                date_val = str(row.get(date_col, '')).strip()
-                
+                date_val = str(row.get('ว/ด/ป', '')).strip()
                 if not date_val or date_val.lower() == 'nan' or date_val == "":
                     return None
                 
@@ -44,16 +67,14 @@ def load_data():
                     parts = date_val.split('/')
                     p1, p2, p3 = int(parts[0]), int(parts[1]), int(parts[2])
                     
-                    # ถ้าปีเป็น พ.ศ. เกิน 2500 ให้แปลงกลับเป็น ค.ศ. สำหรับระบบปฏิทิน Python
                     if p3 > 2500:
                         p3 = p3 - 543
                     elif p3 < 100:
                         p3 = p3 + 2000
                         
-                    # เช็กว่าเขียนแบบ วัน/เดือน/ปี หรือ เดือน/วัน/ปี
-                    if p1 > 12:  # ชัวร์ว่าเป็นวันที่แน่นอน เช่น 19/5/2569
+                    if p1 > 12:
                         return pd.Timestamp(year=p3, month=p2, day=p1).date()
-                    else:  # กรณีเป็น เดือน/วัน/ปี หรือ วัน/เดือน/ปี ที่ไม่เกินเลข 12
+                    else:
                         try:
                             return pd.Timestamp(year=p3, month=p1, day=p2).date()
                         except:
@@ -65,7 +86,7 @@ def load_data():
 
         df['Formatted_Date'] = df.apply(parse_hospital_date, axis=1)
         
-        # แกะ URL รูปภาพออกจากสูตร =IMAGE("...") เพื่อนำมาพรีวิวใน Streamlit
+        # เคลียร์สูตรล้างรูปภาพ
         def clean_image_formula(val):
             val_str = str(val).strip()
             if val_str.startswith('=IMAGE("') and val_str.endswith('")'):
