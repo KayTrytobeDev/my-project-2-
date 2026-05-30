@@ -85,9 +85,8 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v10')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v11')
         
-        # จัดการคำนวณยอดรวมประจำเดือนของปฏิทินที่กำลังแสดงผล
         current_view_month = None
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
             start_date_str = cal_data["view"]["currentStart"].split("T")[0]
@@ -163,24 +162,27 @@ try:
         st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
         if not df_raw.empty:
             df_dash = df_raw[df_raw['Topic/risk finding'] != ""].copy()
-            # คลีนข้อมูลสถานะงานที่เป็นค่าว่างออกเพื่อความสวยงามของกราฟวงกลม
-            df_dash['Status'] = df_dash['Status'].replace("", "ไม่ระบุสถานะ")
+            # ยุบและคลีนค่าว่าง Null ออกไปเพื่อให้กราฟวงกลมแสดงผลเฉพาะกลุ่มที่มีอยู่จริงแบบคลีนๆ
+            df_dash['Status'] = df_dash['Status'].replace(["", "null", "None"], "ไม่ระบุสถานะ")
+            df_dash = df_dash[df_dash['Status'] != "ไม่ระบุสถานะ"]
             
             st.metric("รวมเคสทั้งหมดในระบบ", f"{len(df_dash)} รายการ")
             
             c1, c2 = st.columns(2)
             with c1:
-                st.plotly_chart(px.bar(df_dash, x='Responsible Person', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
+                st.plotly_chart(px.bar(df_dash, x='Responsible Person', color='Status', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
             with c2:
                 st.plotly_chart(px.pie(df_dash, names='Status', title="สัดส่วนสถานะการดำเนินงาน"), use_container_width=True)
 
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
+        
+        # 🔗 ใส่ URL ของ Web App Google Apps Script ที่ Deploy เวอร์ชันล่าสุดของคุณด้านล่างนี้ครับ
         API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
-            with st.form("risk_form_v10_submit", clear_on_submit=True):
+            with st.form("risk_form_v11_submit", clear_on_submit=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
@@ -188,7 +190,7 @@ try:
                     new_location = st.text_input("🏢 สถานที่ (Location)")
                 with col2:
                     new_owner = st.text_input("👤 ผู้รับผิดชอบ (Responsible Person)*")
-                    new_status = st.selectbox("🔘 สถานะงาน", ["รอดำเนินการ", "กำลังดำเนินการ", "ดำเนินการเรียบร้อย"])
+                    new_status = st.selectbox("🔘 สถานะงาน", ["ดําเนินการเรียบร้อย", "รอดำเนินการ", "กำลังดำเนินการ"])
                     new_risk = st.selectbox("⚠️ ระดับความเสี่ยง (Risk Level)", ["Low", "Medium", "High"])
                 
                 new_action = st.text_area("🔧 แนวทางการจัดการแก้ไข (Corrective Action)")
@@ -204,7 +206,8 @@ try:
                     else:
                         with st.spinner("กำลังส่งข้อมูลไปยัง Google Sheet..."):
                             payload = {
-                                "date_d": new_date.strftime("%m/%d/%Y"),
+                                "date_day": new_date.strftime("%d"),
+                                "date_month": new_date.strftime("%b"),
                                 "topic": new_topic,
                                 "location": new_location,
                                 "owner": new_owner,
@@ -221,7 +224,7 @@ try:
                                     st.balloons()
                                     st.cache_data.clear()
                                 else:
-                                    st.error(f"เกิดข้อผิดพลาดจาก Server: {res.status_code}")
+                                    st.error(f"เกิดข้อผิดพลาดจาก Server: {res.status_code} (ตรวจสอบให้มั่นใจว่าได้ Deploy เว็บแอปเป็นเวอร์ชันล่าสุดและเปิดสาธารณะแล้ว)")
                             except Exception as err:
                                 st.error(f"ไม่สามารถเชื่อมต่อไปยังหลังบ้านได้: {err}")
             st.markdown('</div>', unsafe_allow_html=True)
