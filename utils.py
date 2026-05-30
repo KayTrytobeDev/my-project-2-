@@ -4,61 +4,69 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# 🔗 ลิงก์ฐานข้อมูลสเปรดชีตแผ่นงานของคุณ Booska
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CN0i5qlvgAo5w1QG0sHBl1Z4WyB8Hl9VZSK0HnqqU4c/edit?usp=sharing"
+# 🔗 ลิงก์สเปรดชีตแผ่นงานของคุณ Booska
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUClxj5_aIOhr2GQ_vTd3IGhrR1MKJxjwp_-wAVrafYLbylhME-gfokR8BfbXiSiz_oPQldAu6J-5g/pubhtml?gid=2134980035&single=true"
 
 @st.cache_data(ttl=2)
 def load_data():
     try:
-        # อ่านข้อมูลโดยข้ามแถวที่มีปัญหาด้วย python engine
-        df = pd.read_csv(SPREADSHEET_URL, on_bad_lines='skip', engine='python')
-        df.columns = df.columns.str.strip()
+        # 🛠️ แก้ปัญหา Line 65 Tokenizing: บังคับให้อ่านแถวที่มีคอมมาเกินได้ ไม่ให้ระบบดึงข้อมูลพังลงมา
+        df = pd.read_csv(
+            SPREADSHEET_URL, 
+            on_bad_lines='skip', 
+            engine='python',
+            dtype=str  # บังคับอ่านข้อมูลทุกอย่างเป็นข้อความดิบไว้ก่อนเพื่อป้องกันชนิดข้อมูลขัดกัน
+        )
         
         if df.empty:
             return pd.DataFrame()
 
-        # 🛠️ จัดกลุ่มชื่อคอลัมน์เพื่อดึงประเด็นความเสี่ยง
+        # ล้างช่องว่างที่หัวตาราง
+        df.columns = df.columns.str.strip()
+        
+        # ค้นหาคอลัมน์ประเด็นความเสี่ยงด้วยคำใกล้เคียง
         has_topic = False
         for col in df.columns:
-            if 'Topic' in col or 'risk' in col or 'ประเด็น' in col or 'ความเสี่ยง' in col:
+            if any(x in str(col) for x in ['Topic', 'risk', 'ประเด็น', 'ความเสี่ยง']):
                 df = df.rename(columns={col: 'Topic/risk finding'})
                 has_topic = True
                 break
         
-        # แผนสำรอง: ถ้าหาไม่เจอจริงๆ บังคับเอาคอลัมน์ที่ 2 (ดัชนี 1) เป็นชื่อหัวข้อ
         if not has_topic and len(df.columns) > 1:
             df = df.rename(columns={df.columns[1]: 'Topic/risk finding'})
             
+        # กรองเอาเฉพาะแถวที่มีการบันทึกประเด็นความเสี่ยงจริง ๆ เท่านั้น
         if 'Topic/risk finding' in df.columns:
             df = df.dropna(subset=['Topic/risk finding'])
             df = df[df['Topic/risk finding'].astype(str).str.strip() != ""]
+            df = df[~df['Topic/risk finding'].astype(str).str.contains('nan|None|null', case=False)]
         else:
             return pd.DataFrame()
 
-        # กำหนดชื่อคอลัมน์แรกเป็น วันที่ เสมอเพื่อนำไปปักหมุดในปฏิทิน
+        # กำหนดชื่อคอลัมน์แรกให้เป็นวันที่
         if len(df.columns) > 0:
             date_col = df.columns[0]
             if date_col != 'ว/ด/ป':
                 df = df.rename(columns={date_col: 'ว/ด/ป'})
 
-        # กำหนดคอลัมน์ ผู้รับผิดชอบ และ สถานะ ด้วยคำใกล้เคียง
+        # ค้นหาและกำหนดชื่อคอลัมน์ผู้รับผิดชอบและสถานะ
         for col in df.columns:
-            if 'Responsible' in col or 'ผู้รับผิดชอบ' in col or 'คนตรวจ' in col:
+            if any(x in str(col) for x in ['Responsible', 'ผู้รับผิดชอบ', 'คนตรวจ']):
                 if col != 'Responsible Person':
                     df = df.rename(columns={col: 'Responsible Person'})
-            if 'Status' in col or 'สถานะ' in col:
+            if any(x in str(col) for x in ['Status', 'สถานะ']):
                 if col != 'Status':
                     df = df.rename(columns={col: 'Status'})
 
-        # บั๊กเก่าอยู่ตรงนี้ บอสแก้ให้วนลูปเคลียร์ช่องว่าง (strip) ในแต่ละคอลลัมน์อย่างถูกต้องแล้วครับ
+        # เคลียร์ช่องว่างข้อความส่วนเกินรอบตัวอักษรของทุกเซลล์อย่างปลอดภัย
         for col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].fillna("").astype(str).str.strip()
 
-        # ระบบแกะและแปลงวันที่อัจฉริยะ (รองรับ พ.ศ. และ ค.ศ.)
+        # ระบบคำนวณและแกะรูปแบบวันที่ประจำโรงพยาบาล (พ.ศ. / ค.ศ.)
         def parse_hospital_date(row):
             try:
                 date_val = str(row.get('ว/ด/ป', '')).strip()
-                if not date_val or date_val.lower() == 'nan' or date_val == "":
+                if not date_val or date_val.lower() in ['nan', 'none', 'null', '']:
                     return None
                 
                 if '/' in date_val:
@@ -84,7 +92,7 @@ def load_data():
 
         df['Formatted_Date'] = df.apply(parse_hospital_date, axis=1)
         
-        # ล้างสูตรเพื่อแสดงรูปภาพ Before / After
+        # ถอดสูตรแปลงลิงก์รูปภาพให้ดึงขึ้นระบบได้ทันที
         def clean_image_formula(val):
             val_str = str(val).strip()
             if val_str.startswith('=IMAGE("') and val_str.endswith('")'):
@@ -96,7 +104,6 @@ def load_data():
         if 'Picture (After)' in df.columns:
             df['Picture (After)'] = df['Picture (After)'].apply(clean_image_formula)
 
-        df = df.fillna("")
         return df
     except Exception as e:
         st.error(f"ระบบตรวจพบฟอร์แมตข้อมูลขัดข้องในสเปรดชีต: {e}")
