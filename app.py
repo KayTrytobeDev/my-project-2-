@@ -8,7 +8,7 @@ from utils import load_data, get_status_group, convert_image_to_base64
 
 st.set_page_config(page_title="FMS Risk Tracker", layout="wide")
 
-# 🎨 สไตล์หน้าจอระบบ
+# 🎨 สไตล์หน้าจอกรอบระบบ
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -86,7 +86,7 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_v12')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_v1')
         
         current_view_month = None
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
@@ -104,12 +104,7 @@ try:
             monthly_count = 0
 
         months_th = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
-        st.markdown(f"""
-            <div class="metric-box">
-                <span style="font-size: 16px; color: #475569; font-weight: bold;">📊 จำนวนเคสทั้งหมดของเดือน {months_th[current_view_month]}</span><br>
-                <span style="font-size: 28px; color: #1E3A8A; font-weight: 900;">{monthly_count} รายการ</span>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-box"><b>📊 จำนวนเคสทั้งหมดของเดือน {months_th[current_view_month]}:</b> <span style="font-size: 22px; color: #1E3A8A;">{monthly_count} รายการ</span></div>', unsafe_allow_html=True)
 
         selected_date = None
         if cal_data.get("eventClick"): selected_date = cal_data["eventClick"]["event"]["id"]
@@ -124,7 +119,7 @@ try:
                 for idx, row in df_display.iterrows():
                     group = get_status_group(row.get('Status'))
                     card_style = "card card-complete" if group == "complete" else ("card card-on-process" if group == "on_process" else "card card-pending")
-                    badge_html = f'<span class="status-badge badge-{group}">{row.get("Status", "รอดำเนินการ")}</span>'
+                    badge_label = row.get("Status", "รอดำเนินการ")
                     
                     r_level = str(row.get('Risk Level', row.get('Risk Lvl', row.get('Risk', 'Low')))).strip()
                     if 'low' in r_level.lower() or 'ต่ำ' in r_level: risk_class = "risk-badge risk-low"
@@ -132,15 +127,93 @@ try:
                     elif 'high' in r_level.lower() or 'สูง' in r_level: risk_class = "risk-badge risk-high"
                     else: risk_class = "risk-badge risk-low"
                     
-                    st.markdown(f"""
-                        <div class="{card_style}">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <h3 style="margin:0; color:#1E3A8A;">
-                                    📍 {row.get('Topic/risk finding','N/A')}
-                                    <span class="{risk_class}">⚠️ ระดับความเสี่ยง: {r_level if r_level != "" else "Low"}</span>
-                                </h3>
-                                {badge_html}
-                            </div>
-                            <p style="font-size:14px; color:#4B5563; margin-top:5px;">🏢 <b>สถานที่:</b> {row.get('Location','N/A')} | 👤 <b>ผู้รับผิดชอบ:</b> {row.get('Responsible Person','N/A')}</p>
-                            <p style="font-size:15px; background:#f1f5f9; padding:10px; border-radius:5px;">🔧 <b>แนวทางแก้ไข:</b> {row.get('Corrective Action','ไม่มีข้อมูล')}</p>
-                        </div>
+                    # 🛠️ ซ่อมรอยรั่วจุดที่ f-string พังด้วยการส่งค่าแบบสากล
+                    st.markdown(f'<div class="{card_style}"><div style="display: flex; justify-content: space-between; align-items: center;"><h3 style="margin:0; color:#1E3A8A;">📍 {row.get("Topic/risk finding","N/A")} <span class="{risk_class}">⚠️ {r_level}</span></h3><span class="status-badge badge-{group}">{badge_label}</span></div><p style="font-size:14px; color:#4B5563; margin-top:5px;">🏢 <b>สถานที่:</b> {row.get("Location","N/A")} | 👤 <b>ผู้รับผิดชอบ:</b> {row.get("Responsible Person","N/A")}</p><p style="font-size:15px; background:#f1f5f9; padding:10px; border-radius:5px;">🔧 <b>แนวทางแก้ไข:</b> {row.get("Corrective Action","ไม่มีข้อมูล")}</p></div>', unsafe_allow_html=True)
+                    
+                    img_col1, img_col2 = st.columns(2)
+                    with img_col1:
+                        pic_b = str(row.get('Picture (before)', '')).strip().replace(" ", "")
+                        if pic_b and (pic_b.startswith('data:image') or pic_b.startswith('http')):
+                            st.image(pic_b, caption="📸 ภาพก่อนแก้ไข (Before)", use_container_width=True)
+                    with img_col2:
+                        pic_a = str(row.get('Picture (After)', '')).strip().replace(" ", "")
+                        if pic_a and (pic_a.startswith('data:image') or pic_a.startswith('http')):
+                            st.image(pic_a, caption="✅ ภาพหลังแก้ไข (After)", use_container_width=True)
+                    st.divider()
+            else:
+                st.warning("ไม่มีข้อมูลที่ตรงเงื่อนไขการกรองในวันนี้")
+
+    elif menu == "📊 สรุปภาพรวม (Dashboard)":
+        st.title("📊 สรุปภาพรวมโครงการ (Dashboard)")
+        if not df_raw.empty:
+            df_dash = df_raw[df_raw['Topic/risk finding'] != ""].copy()
+            df_dash['Status'] = df_dash['Status'].replace(["", "null", "None"], "ไม่ระบุสถานะ")
+            df_dash = df_dash[df_dash['Status'] != "ไม่ระบุสถานะ"]
+            
+            st.metric("รวมเคสทั้งหมดในระบบ", f"{len(df_dash)} รายการ")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.plotly_chart(px.bar(df_dash, x='Responsible Person', color='Status', title="ปริมาณงานแยกตามแผนก/บุคคล"), use_container_width=True)
+            with c2:
+                st.plotly_chart(px.pie(df_dash, names='Status', title="สัดส่วนสถานะการดำเนินงาน"), use_container_width=True)
+
+    elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
+        st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
+        
+        # 🔗 ใส่ URL เว็บแอปจาก Google Apps Script ของคุณตรงนี้ครับ
+        API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
+        
+        with st.container():
+            st.markdown('<div class="form-container">', unsafe_allow_html=True)
+            with st.form("risk_form_v12_submit", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_date = st.date_input("📅 วันที่ตรวจพบ", datetime.date.today())
+                    new_topic = st.text_input("📍 ประเด็นความเสี่ยงที่พบ (Topic/risk finding)*")
+                    new_location = st.text_input("🏢 สถานที่ (Location)")
+                with col2:
+                    new_owner = st.text_input("👤 ผู้รับผิดชอบ (Responsible Person)*")
+                    new_status = st.selectbox("🔘 สถานะงาน", ["ดําเนินการเรียบร้อย", "รอดำเนินการ", "กำลังดำเนินการ"])
+                    new_risk = st.selectbox("⚠️ ระดับความเสี่ยง (Risk Level)", ["Low", "Medium", "High"])
+                
+                new_action = st.text_area("🔧 แนวทางการจัดการแก้ไข (Corrective Action)")
+                st.markdown("---")
+                
+                col_img1, col_img2 = st.columns(2)
+                with col_img1: up_before = st.file_uploader("📸 ภาพก่อนแก้ไข (Before)", type=["jpg","jpeg","png"])
+                with col_img2: up_after = st.file_uploader("✅ ภาพหลังแก้ไข (After)", type=["jpg","jpeg","png"])
+                
+                if st.form_submit_button("💾 ส่งข้อมูลบันทึกลงตารางหลัก"):
+                    if not new_topic or not new_owner:
+                        st.error("❌ บันทึกไม่สำเร็จ: กรุณากรอกช่องประเด็นความเสี่ยงและผู้รับผิดชอบ")
+                    else:
+                        with st.spinner("กำลังส่งข้อมูลไปยัง Google Sheet..."):
+                            th_year = new_date.year + 543
+                            str_date_combined = f"{new_date.month}/{new_date.day}/{th_year}"
+                            
+                            payload = {
+                                "formatted_date": str_date_combined,
+                                "topic": new_topic,
+                                "location": new_location,
+                                "owner": new_owner,
+                                "status": new_status,
+                                "risk_level": new_risk,
+                                "action": new_action,
+                                "pic_before": convert_image_to_base64(up_before),
+                                "pic_after": convert_image_to_base64(up_after)
+                            }
+                            try:
+                                res = requests.post(API_URL, json=payload)
+                                if res.status_code == 200:
+                                    st.success("🎉 บันทึกข้อมูลและรูปภาพขึ้นชีทสำเร็จเรียบร้อย!")
+                                    st.balloons()
+                                    st.cache_data.clear()
+                                else:
+                                    st.error(f"เกิดข้อผิดพลาดจาก Server: {res.status_code}")
+                            except Exception as err:
+                                st.error(f"ไม่สามารถเชื่อมต่อไปยังหลังบ้านได้: {err}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"เกิดข้อผิดพลาดในการโหลดระบบ: {e}")
