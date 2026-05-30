@@ -4,37 +4,48 @@ import base64
 from io import BytesIO
 from PIL import Image
 
-# ใช้ลิงก์ที่คุณส่งมาแปลงเป็นรูปแบบที่โค้ดดึงข้อมูลตารางดิบได้โดยตรง (Export เป็น CSV)
-PUB_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTgTjP2perBAg1RodNvk1AahEh_OFdhCMzIYxyhQu-yM_Twbg3sbheMyTCWHi1zaw/pub?output=csv"
+# 💡 วางลิงก์สเปรดชีตของคุณตัวล่าสุด (ตรงช่องนี้ให้กดประกาศใช้บนเว็บแบบ CSV หรือดึงโดยตรง)
+# หมายเหตุ: หากเปิดแชร์ลิงก์ทั่วไป สามารถใช้ฟังก์ชันนี้แปลงปลายลิงก์ดึงค่า CSV ได้อัตโนมัติ
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY/export?format=csv&gid=1864070200"
 
-@st.cache_data(ttl=3)
+@st.cache_data(ttl=5)
 def load_data():
     try:
-        # ดึงข้อมูลจากลิงก์ตัวล่าสุด
-        df = pd.read_csv(PUB_URL)
+        # อ่านข้อมูลจากตารางหลัก
+        df = pd.read_csv(SPREADSHEET_URL)
         df.columns = df.columns.str.strip()
         
-        # กรองแถวว่างเปล่าออกโดยอิงจากประเด็นความเสี่ยงเป็นหลัก
-        df = df.dropna(subset=['Topic/risk finding'])
-        
+        # กรองเอาเฉพาะแถวที่มีการบันทึกประเด็นความเสี่ยงจริง
+        if 'Topic/risk finding' in df.columns:
+            df = df.dropna(subset=['Topic/risk finding'])
+        else:
+            # กรณีหัวคอลัมน์ภาษาไทย/อังกฤษ แตกต่างกันให้ปรับรองรับ
+            possible_topics = ['Topic/risk finding', 'ประเด็นความเสี่ยงที่พบ', 'ประเด็นความเสี่ยงที่พบ (Topic/risk finding)']
+            for col in possible_topics:
+                if col in df.columns:
+                    df = df.rename(columns={col: 'Topic/risk finding'})
+                    break
+            df = df.dropna(subset=['Topic/risk finding'])
+
         # คลีนช่องว่างรอบตัวอักษรของทุกคอลัมน์
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.strip()
 
-        # ระบบแปลงวันที่จากคอลัมน์ ว/ด/ป
-        def parse_custom_date(row):
+        # 🛠️ จัดการแปลงคอลัมน์ วัน/เดือน/ปี ให้กลายเป็นรูปแบบวันที่ที่ระบุบนปฏิทินได้
+        def parse_row_date(row):
             try:
-                date_raw = str(row.get('ว/ด/ป', row.get('Date', ''))).strip()
-                if not date_raw or date_raw.lower() == 'nan':
+                date_val = str(row.get('วัน/เดือน/ปี', row.get('Date/Month/Year', row.get('Date', '')))).strip()
+                if not date_val or date_val.lower() == 'nan':
                     return None
-                return pd.to_datetime(date_raw, errors='coerce').date()
+                # รองรับฟอร์แมตวันที่หลากหลายรูปแบบที่พิมพ์ในสเปรดชีต
+                return pd.to_datetime(date_val, errors='coerce').date()
             except:
                 return None
 
-        df['Formatted_Date'] = df.apply(parse_custom_date, axis=1)
+        df['Formatted_Date'] = df.apply(parse_row_date, axis=1)
         
-        # ป้องกันค่า NaN ในคอลลัมน์อื่นหลุดไปรบกวนหน้าเว็บ
+        # เติมค่าว่างป้องกัน Error ในระบบ
         df = df.fillna("")
         return df
     except Exception as e:
@@ -45,9 +56,9 @@ def get_status_group(status_value):
     if pd.isna(status_value) or str(status_value).strip() == "":
         return "pending"
     status_str = str(status_value).strip().lower()
-    if any(x in status_str for x in ["เรียบร้อย", "complete", "เสร็จสิ้น", "สำเร็จ", "✅", "done", "ดำเนินการเรียบร้อย"]):
+    if any(x in status_str for x in ["เรียบร้อย", "complete", "เสร็จสิ้น", "สำเร็จ", "✅", "done"]):
         return "complete"
-    elif any(x in status_str for x in ["on process", "onprocess", "กำลังทำ", "ดำเนิน", "กำลังดำเนินการ", "🔄"]):
+    elif any(x in status_str for x in ["on process", "onprocess", "กำลังทำ", "กำลังดำเนินการ", "🔄"]):
         return "on_process"
     else:
         return "pending"
@@ -62,8 +73,4 @@ def convert_image_to_base64(uploaded_file):
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
         image.save(buffered, format="JPEG", quality=65)
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        return f"data:image/jpeg;base64,{img_str}"
-    except Exception as e:
-        st.error(f"การแปลงรูปภาพขัดข้อง: {e}")
-        return ""
+        img_str = base64.b64encode(buffered.getvalue()).decode
