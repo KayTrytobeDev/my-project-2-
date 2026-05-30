@@ -178,7 +178,7 @@ try:
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
         # 🔗 ใส่ URL ของ Web App Google Apps Script ที่ Deploy เวอร์ชันล่าสุดของคุณด้านล่างนี้ครับ
-        API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
+        API_URL = "https://script.google.com/macros/s/AKfycbyKkWcuN0WgWMugiW5EnaVol69iN2GjmXbK24o5P9euD-R4x-inhgfc5bEQ8tuPhlHD/exec"
         
         with st.container():
             st.markdown('<div class="form-container">', unsafe_allow_html=True)
