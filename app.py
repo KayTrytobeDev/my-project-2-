@@ -11,25 +11,20 @@ st.set_page_config(page_title="FMS Risk Tracker", layout="wide")
 try:
     df_raw = load_data()
 
-    # 🕵️‍♂️ กล่องตรวจสุขภาพข้อมูลหลังบ้าน (จะแสดงอยู่ด้านบนสุดของหน้าเว็บเสมอ)
-    st.markdown("### 🕵️‍♂️ กล่องตรวจสุขภาพข้อมูลหลังบ้าน (ตรวจสอบปัญหาข้อมูลไม่ขึ้น)")
+    st.markdown("### 🕵️‍♂️ กล่องตรวจสุขภาพข้อมูลหลังบ้าน")
     if not df_raw.empty:
         col_test1, col_test2 = st.columns(2)
         with col_test1:
-            st.info(f"📋 คอลัมน์ที่ระบบอ่านได้จริง: {df_raw.columns.tolist()}")
+            st.info(f"📋 รายชื่อคอลัมน์ที่ระบบจัดกลุ่มเสร็จแล้ว: {df_raw.columns.tolist()}")
         with col_test2:
             total_rows = len(df_raw)
             parsed_dates = df_raw['Formatted_Date'].notna().sum()
-            st.success(f"📊 อ่านเคสเจอทั้งหมด: {total_rows} แถว | แปลงวันที่สำเร็จเพื่อลงปฏิทินได้: {parsed_dates} แถว")
-        
-        with st.expander("🔍 คลิกเพื่อดูตัวอย่างข้อมูลจริง 3 แถวแรกที่ระบบดึงมาได้"):
-            st.dataframe(df_raw[['ว/ด/ป', 'Topic/risk finding', 'Responsible Person', 'Status', 'Formatted_Date']].head(3))
+            st.success(f"📊 โหลดเคสผ่าน: {total_rows} รายการ | นำลงปฏิทินได้: {parsed_dates} รายการ")
     else:
-        st.error("❌ ระบบดึงข้อมูลออกมาจาก Google Sheet เป็นตารางว่างเปล่า! กรุณาเช็กสิทธิ์การแชร์ลิงก์หรือหัวตารางในชีท")
+        st.error("❌ ยังไม่สามารถแกะโครงสร้างตารางจากลิงก์สเปรดชีตได้ กรุณาตรวจสอบหัวข้อใน Google Sheet ของคุณ")
 
     st.divider()
 
-    # 📌 เมนูควบคุมฝั่งซ้ายมือ
     st.sidebar.title("📌 เมนูควบคุม")
     menu = st.sidebar.radio("เลือกโหมดการแสดงผล", [
         "📅 ปฏิทินติดตามงาน (รายวัน)", 
@@ -40,6 +35,7 @@ try:
     if menu == "📅 ปฏิทินติดตามงาน (รายวัน)":
         st.title("📅 ระบบปฏิทินติดตามประเด็นความเสี่ยง")
         
+        # ดึงรายชื่อผู้รับผิดชอบและสถานะเฉพาะที่มีข้อมูลจริง ไม่เอาเศษขยะมาโชว์
         if not df_raw.empty:
             raw_owners = df_raw['Responsible Person'].unique().tolist() if 'Responsible Person' in df_raw.columns else []
             owners = ["ทั้งหมด"] + sorted([str(o).strip() for o in raw_owners if str(o).strip() != '' and str(o).lower() != 'nan' and str(o) != '0.0'])
@@ -81,7 +77,7 @@ try:
             "initialView": "dayGridMonth", "locale": "th"
         }
         
-        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_v3')
+        cal_data = calendar(events=calendar_events, options=calendar_options, key='risk_calendar_final_v4')
         
         current_view_month = datetime.date.today().month
         if cal_data.get("view") and cal_data["view"].get("currentStart"):
@@ -146,7 +142,6 @@ try:
     elif menu == "➕ บันทึกข้อมูลเพิ่มเข้าตารางหลัก":
         st.title("➕ บันทึกข้อมูลประเด็นความเสี่ยงลง Google Sheet")
         
-        # 🔗 ใส่ URL เว็บแอป Google Apps Script จริงของคุณ Booska แทนลิงก์นี้ได้เลยครับ
         API_URL = "https://script.google.com/macros/s/AKfycbyb17lC8nve1YstfR-z6V2mD5q57_gRlygC-PzB9bI3z1fWp5tRE_X8k0_o_SgU66G3/exec"
         
         with st.form("risk_form_v12_submit", clear_on_submit=True):
