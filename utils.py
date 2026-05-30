@@ -5,22 +5,22 @@ import requests
 from io import BytesIO, StringIO
 from PIL import Image
 
-# 🔗 ลิงก์ฐานข้อมูลแบบยืดหยุ่นสูง (บอสปรับ Format การดึงข้อมูลให้เข้าถึงโครงสร้างตารางได้ดีขึ้น)
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY/export?format=csv&gid=1864070200"
+# 🔗 ลิงก์ฐานข้อมูลแบบยืดหยุ่น (บอสใช้ฟอร์แมตดึงตารางดิบโดยตรง)
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSUClxj5_aIOhr2GQ_vTd3IGhrR1MKJxjwp_-wAVrafYLbylhME-gfokR8BfbXiSiz_oPQldAu6J-5g/pubhtml?gid=2134980035&single=true"
 
 @st.cache_data(ttl=2)
 def load_data():
     try:
-        # ใช้ requests ดึงข้อมูลเพื่อตรวจสอบเนื้อหาภายในก่อนนำไปแปลงเป็นตาราง
+        # ดึงข้อความจากลิงก์สเปรดชีต
         response = requests.get(SPREADSHEET_URL, timeout=15)
         response.encoding = 'utf-8'
         
-        # 🚨 [จุดสำคัญ] ถ้าระบบดึงได้หน้าเว็บ HTML (แปลว่าลิงก์ไม่ได้เปิดสาธารณะ หรือสิทธิ์แชร์หลุด)
-        if "<html" in response.text.lower() or "<meta" in response.text.lower():
-            st.error("⚠️ ตรวจพบปัญหาการเข้าถึงสเปรดชีต: ลิงก์นี้ส่งคืนมาเป็นหน้าเว็บ HTML แทนที่จะเป็นไฟล์ข้อมูลตาราง (กรุณาตรวจสอบว่าเปิดสิทธิ์แชร์ใน Google Sheet เป็น 'ทุกคนที่มีลิงก์' หรือยังครับ)")
+        # 🚨 ถ้าหน้าเว็บถูกปิดกั้น สเปรดชีตจะส่งรหัส HTML กลับมาแทนตารางข้อมูล
+        if "<html" in response.text.lower() or "<meta" in response.text.lower() or "google-site-verification" in response.text:
+            st.warning("⚠️ [สิทธิ์การเข้าถึงถูกปิดกั้น] โปรดตรวจสอบว่าใน Google Sheet ได้เปลี่ยนการเข้าถึงทั่วไปเป็น 'ทุกคนที่มีลิงก์' แล้วหรือยังครับ")
             return pd.DataFrame()
 
-        # อ่านข้อมูลตารางจากข้อความดิบ
+        # อ่านข้อมูลตารางจากหน้าข้อความดิบ
         df = pd.read_csv(
             StringIO(response.text),
             on_bad_lines='skip',
@@ -31,10 +31,10 @@ def load_data():
         if df.empty:
             return pd.DataFrame()
 
-        # ล้างช่องว่างที่หัวตาราง
+        # ล้างช่องว่างที่หัวคอลลัมน์ทั้งหมด
         df.columns = df.columns.str.strip()
         
-        # จัดกลุ่มและค้นหาคอลัมน์ประเด็นความเสี่ยง
+        # ค้นหาคอลลัมน์ประเด็นความเสี่ยง
         has_topic = False
         for col in df.columns:
             if any(x in str(col) for x in ['Topic', 'risk', 'ประเด็น', 'ความเสี่ยง']):
@@ -45,21 +45,21 @@ def load_data():
         if not has_topic and len(df.columns) > 1:
             df = df.rename(columns={df.columns[1]: 'Topic/risk finding'})
             
-        # ล้างแถวว่าง หรือแถวที่เป็นคำตกค้างจากระบบ
+        # คัดกรองเฉพาะแถวที่มีข้อความบันทึกความเสี่ยงจริง
         if 'Topic/risk finding' in df.columns:
             df = df.dropna(subset=['Topic/risk finding'])
             df = df[df['Topic/risk finding'].astype(str).str.strip() != ""]
-            df = df[~df['Topic/risk finding'].astype(str).str.contains('nan|None|null', case=False)]
+            df = df[~df['Topic/risk finding'].astype(str).str.contains('nan|None|null|<meta|<html', case=False)]
         else:
             return pd.DataFrame()
 
-        # กำหนดชื่อคอลัมน์วันที่
+        # กำหนดชื่อคอลัมน์แรกให้เป็นวันที่
         if len(df.columns) > 0:
             date_col = df.columns[0]
             if date_col != 'ว/ด/ป':
                 df = df.rename(columns={date_col: 'ว/ด/ป'})
 
-        # กำหนดชื่อคอลัมน์ผู้รับผิดชอบและสถานะ
+        # กำหนดชื่อคอลัมน์ผู้รับผิดชอบและสถานะงาน
         for col in df.columns:
             if any(x in str(col) for x in ['Responsible', 'ผู้รับผิดชอบ', 'คนตรวจ']):
                 if col != 'Responsible Person':
@@ -68,11 +68,11 @@ def load_data():
                 if col != 'Status':
                     df = df.rename(columns={col: 'Status'})
 
-        # ล้างช่องว่างข้อความในทุก ๆ เซลล์
+        # ล้างช่องว่างรอบตัวอักษรของทุกเซลล์ในตาราง
         for col in df.columns:
             df[col] = df[col].fillna("").astype(str).str.strip()
 
-        # ระบบแกะฟอร์แมตวันที่ประจำโรงพยาบาล (พ.ศ. / ค.ศ.)
+        # แปลงฟอร์แมตวันที่ (พ.ศ. เป็น ค.ศ.)
         def parse_hospital_date(row):
             try:
                 date_val = str(row.get('ว/ด/ป', '')).strip()
@@ -102,7 +102,7 @@ def load_data():
 
         df['Formatted_Date'] = df.apply(parse_hospital_date, axis=1)
         
-        # ล้างสูตรเพื่อแปลงลิงก์รูปภาพ Before / After
+        # ถอดสูตรแปลงลิงก์รูปภาพ
         def clean_image_formula(val):
             val_str = str(val).strip()
             if val_str.startswith('=IMAGE("') and val_str.endswith('")'):
@@ -116,7 +116,7 @@ def load_data():
 
         return df
     except Exception as e:
-        st.error(f"ระบบตรวจพบข้อผิดพลาดในการเชื่อมต่อข้อมูล: {e}")
+        st.error(f"ระบบขัดข้อง: {e}")
         return pd.DataFrame()
 
 def get_status_group(status_value):
