@@ -5,7 +5,7 @@ from io import BytesIO
 from PIL import Image
 
 # 🔗 ลิงก์ฐานข้อมูลสเปรดชีตแผ่นงานของคุณ Booska
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/13t_tX5HqXiGucVE-DTt7DgX3xt5ds6nY/gviz/tq?tqx=out:csv&gid=1864070200"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1CN0i5qlvgAo5w1QG0sHBl1Z4WyB8Hl9VZSK0HnqqU4c/edit?usp=sharing"
 
 @st.cache_data(ttl=2)
 def load_data():
@@ -17,7 +17,7 @@ def load_data():
         if df.empty:
             return pd.DataFrame()
 
-        # 🛠️ แผนสำรองอัจฉริยะ: ถ้าหาคอลัมน์ชื่อเฉพาะไม่เจอ ให้จับคู่ตามตำแหน่งคอลัมน์ที่ควรจะเป็นแทนเลย
+        # 🛠️ จัดกลุ่มชื่อคอลัมน์เพื่อดึงประเด็นความเสี่ยง
         has_topic = False
         for col in df.columns:
             if 'Topic' in col or 'risk' in col or 'ประเด็น' in col or 'ความเสี่ยง' in col:
@@ -25,18 +25,17 @@ def load_data():
                 has_topic = True
                 break
         
-        # ถ้าพยายามหาแล้วยังไม่เจอคำใกล้เคียง บังคับเอาคอลัมน์ที่ 2 (ดัชนี 1) เป็นชื่อหัวข้อแทน
+        # แผนสำรอง: ถ้าหาไม่เจอจริงๆ บังคับเอาคอลัมน์ที่ 2 (ดัชนี 1) เป็นชื่อหัวข้อ
         if not has_topic and len(df.columns) > 1:
             df = df.rename(columns={df.columns[1]: 'Topic/risk finding'})
             
-        # เคลียร์ล้างแถวที่ไม่มีชื่อหัวข้อเรื่องความเสี่ยงออก
         if 'Topic/risk finding' in df.columns:
             df = df.dropna(subset=['Topic/risk finding'])
             df = df[df['Topic/risk finding'].astype(str).str.strip() != ""]
         else:
             return pd.DataFrame()
 
-        # กำหนดชื่อคอลัมน์อื่นๆ ตามตำแหน่งเพื่อป้องกันปัญหาพิมพ์ชื่อหัวตารางผิด
+        # กำหนดชื่อคอลัมน์แรกเป็น วันที่ เสมอเพื่อนำไปปักหมุดในปฏิทิน
         if len(df.columns) > 0:
             date_col = df.columns[0]
             if date_col != 'ว/ด/ป':
@@ -51,12 +50,11 @@ def load_data():
                 if col != 'Status':
                     df = df.rename(columns={col: 'Status'})
 
-        # ตัดช่องว่างข้อความ
+        # บั๊กเก่าอยู่ตรงนี้ บอสแก้ให้วนลูปเคลียร์ช่องว่าง (strip) ในแต่ละคอลลัมน์อย่างถูกต้องแล้วครับ
         for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].astype(str).str.strip()
 
-        # ระบบแกะวันที่จากคอลัมน์แรก
+        # ระบบแกะและแปลงวันที่อัจฉริยะ (รองรับ พ.ศ. และ ค.ศ.)
         def parse_hospital_date(row):
             try:
                 date_val = str(row.get('ว/ด/ป', '')).strip()
@@ -86,7 +84,7 @@ def load_data():
 
         df['Formatted_Date'] = df.apply(parse_hospital_date, axis=1)
         
-        # เคลียร์สูตรล้างรูปภาพ
+        # ล้างสูตรเพื่อแสดงรูปภาพ Before / After
         def clean_image_formula(val):
             val_str = str(val).strip()
             if val_str.startswith('=IMAGE("') and val_str.endswith('")'):
