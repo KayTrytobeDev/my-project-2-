@@ -6,7 +6,7 @@ from io import BytesIO, StringIO
 from PIL import Image
 
 # 🔗 เชื่อมต่อโดยตรงกับสเปรดชีตอันใหม่ที่คุณ Booska จัดทำขึ้น
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1O1Titxr4J97TlRP3BV50rfvtRXsvGHTSHu79JvftP_k/export?format=csv&gid=0"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vReZXt0M6xFJWVD9ip3XHl9ZYiYCZtKfdXwDiluIn_gC7lQdhliVIF5JZtZ2LTYicbyAvYZ2PUHAxBv/pubhtml"
 
 @st.cache_data(ttl=1)
 def load_data():
